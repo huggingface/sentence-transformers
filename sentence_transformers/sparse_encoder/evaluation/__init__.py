@@ -12,6 +12,7 @@ from sentence_transformers.sparse_encoder.evaluation.sparse_information_retrieva
 )
 from sentence_transformers.sparse_encoder.evaluation.sparse_mse import SparseMSEEvaluator
 from sentence_transformers.sparse_encoder.evaluation.sparse_nano_beir import SparseNanoBEIREvaluator
+from sentence_transformers.sparse_encoder.evaluation.sparse_nano_retrieval import SparseNanoRetrievalEvaluator
 from sentence_transformers.sparse_encoder.evaluation.sparse_reranking import SparseRerankingEvaluator
 from sentence_transformers.sparse_encoder.evaluation.sparse_translation import SparseTranslationEvaluator
 from sentence_transformers.sparse_encoder.evaluation.sparse_triplet import SparseTripletEvaluator
@@ -22,6 +23,7 @@ __all__ = [
     "SparseBinaryClassificationEvaluator",
     "SparseMSEEvaluator",
     "SparseNanoBEIREvaluator",
+    "SparseNanoRetrievalEvaluator",
     "SparseTripletEvaluator",
     "SparseTranslationEvaluator",
     "SparseRerankingEvaluator",

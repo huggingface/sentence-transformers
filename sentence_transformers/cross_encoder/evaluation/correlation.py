@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING
 
 from scipy.stats import pearsonr, spearmanr
@@ -73,6 +71,14 @@ class CrossEncoderCorrelationEvaluator(BaseEvaluator):
         show_progress_bar: bool | None = None,
         write_csv: bool = True,
     ):
+        super().__init__()
+        if len(sentence_pairs) != len(scores):
+            raise ValueError(
+                f"sentence_pairs ({len(sentence_pairs)}) and scores ({len(scores)}) must have the same length."
+            )
+        if len(sentence_pairs) < 2:
+            raise ValueError("CrossEncoderCorrelationEvaluator needs at least two sentence pairs with a score.")
+
         self.sentence_pairs = sentence_pairs
         self.scores = scores
         self.name = name
@@ -97,18 +103,9 @@ class CrossEncoderCorrelationEvaluator(BaseEvaluator):
             scores.append(example.label)
         return cls(sentence_pairs, scores, **kwargs)
 
-    def __call__(
+    def evaluate(
         self, model: CrossEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-
-        logger.info(f"CrossEncoderCorrelationEvaluator: Evaluating the model on {self.name} dataset{out_txt}:")
         pred_scores = model.predict(
             self.sentence_pairs,
             prompt_name=self.prompt_name,
@@ -122,21 +119,10 @@ class CrossEncoderCorrelationEvaluator(BaseEvaluator):
 
         logger.info(f"Correlation:\tPearson: {eval_pearson:.4f}\tSpearman: {eval_spearman:.4f}")
 
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow([epoch, steps, eval_pearson, eval_spearman])
-
-        metrics = {
+        return {
             "pearson": eval_pearson,
             "spearman": eval_spearman,
         }
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        return metrics[header.removesuffix("_Correlation").lower()]

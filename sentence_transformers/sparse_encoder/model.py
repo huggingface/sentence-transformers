@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
-from typing import Any, ClassVar, Literal, overload
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 
 import numpy as np
 import torch
@@ -21,7 +22,11 @@ from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCa
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SpladePooling
 from sentence_transformers.util import batch_to_device, select_max_active_dims
 from sentence_transformers.util.decorators import deprecated_kwargs
+from sentence_transformers.util.misc import _to_list
 from sentence_transformers.util.similarity import SimilarityFunction
+
+if TYPE_CHECKING:
+    from transformers import KernelConfig
 
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
 logger = transformers_logging.get_logger(__name__)
@@ -32,9 +37,9 @@ class SparseEncoder(BaseModel):
     Loads or creates a SparseEncoder model that can be used to map text to sparse embeddings.
 
     Args:
-        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise, tries
-            to download a pre-trained SparseEncoder model. If that fails, tries to construct a model from the
-            Hugging Face Hub with that name. Defaults to None.
+        model_name_or_path (str or Path, optional): If a filepath on disk, loads the model from that path. Otherwise,
+            tries to download a pre-trained SparseEncoder model. If that fails, tries to construct a model
+            from the Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
             create custom SparseEncoder models from scratch. Defaults to None.
         device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used for
@@ -59,6 +64,10 @@ class SparseEncoder(BaseModel):
         token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
             private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
             credentials saved with ``hf auth login``, if available.
+        use_kernels (bool, optional): Enable the default backbone kernels supported by the model and device.
+            Requires the torch backend and compatible kernel dependencies. Defaults to False.
+        kernel_config (KernelConfig, optional): Override backbone kernel mappings. Providing a configuration
+            also enables kernels. These settings are runtime-only. Defaults to None.
         model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
             Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -145,7 +154,7 @@ class SparseEncoder(BaseModel):
     @deprecated_kwargs(tokenizer_kwargs="processor_kwargs")
     def __init__(
         self,
-        model_name_or_path: str | None = None,
+        model_name_or_path: str | Path | None = None,
         *,
         modules: list[nn.Module] | None = None,
         device: str | None = None,
@@ -159,12 +168,17 @@ class SparseEncoder(BaseModel):
         model_kwargs: dict[str, Any] | None = None,
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
+        use_kernels: bool = False,
+        kernel_config: KernelConfig | None = None,
         model_card_data: SparseEncoderModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
         # SparseEncoder-specific args
         similarity_fn_name: str | SimilarityFunction | None = None,
         max_active_dims: int | None = None,
     ) -> None:
+        if isinstance(model_name_or_path, Path):
+            model_name_or_path = str(model_name_or_path)
+
         # Set before super().__init__() so _parse_model_config can check these
         self.similarity_fn_name = similarity_fn_name
         self.max_active_dims = max_active_dims
@@ -179,6 +193,8 @@ class SparseEncoder(BaseModel):
             local_files_only=local_files_only,
             token=token,
             model_kwargs=model_kwargs,
+            use_kernels=use_kernels,
+            kernel_config=kernel_config,
             processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             model_card_data=model_card_data,
@@ -699,8 +715,8 @@ class SparseEncoder(BaseModel):
         if is_singular_input:
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
-            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            materialized: list[TextInput] = _to_list(inputs)
+            inputs = materialized
 
         # Throw an error if unused kwargs are passed, except 'task' which is always allowed, even
         # when it does not do anything (as e.g. there's no Router module in the model)

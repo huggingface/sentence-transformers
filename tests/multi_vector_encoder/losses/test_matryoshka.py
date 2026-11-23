@@ -6,12 +6,15 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from sentence_transformers.multi_vector_encoder import losses as mve_losses
-from sentence_transformers.util import batch_to_device
+from sentence_transformers.util import batch_to_device, maxsim, maxsim_pairwise
 
 DIM = 8
 
 
 class _PassthroughModel(nn.Module):
+    similarity = staticmethod(maxsim)
+    similarity_pairwise = staticmethod(maxsim_pairwise)
+
     def __init__(self) -> None:
         super().__init__()
         self.forward_calls = 0

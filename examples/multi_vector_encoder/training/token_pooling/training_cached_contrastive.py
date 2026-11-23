@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train,kernels]>=6.3.0",
+# ]
+# ///
 """Train for a document token budget and compare against ordinary contrastive training."""
 
 import argparse
@@ -5,7 +11,10 @@ import logging
 import traceback
 
 from datasets import load_dataset
+from packaging.version import Version
+from transformers import __version__ as transformers_version
 from transformers import set_seed
+from transformers.utils import is_kernels_available
 
 from sentence_transformers import MultiVectorEncoder, MultiVectorEncoderTrainer, MultiVectorEncoderTrainingArguments
 from sentence_transformers.base.sampler import BatchSamplers
@@ -31,7 +40,12 @@ def main():
     set_seed(seed)
 
     # 1. Initialize the encoder and token projection identically for both losses
-    model = MultiVectorEncoder("answerdotai/ModernBERT-base", model_kwargs={"torch_dtype": "float32"})
+    use_kernels = Version(transformers_version) >= Version("5.20.0") and is_kernels_available()
+    model = MultiVectorEncoder(
+        "answerdotai/ModernBERT-base",
+        model_kwargs={"torch_dtype": "float32"},
+        use_kernels=use_kernels,  # Speed up MaxSim scoring and Ward pooling on supported GPUs
+    )
     # Set query expansion to "expand to at least 32 tokens"
     model[0].query_expansion = {"strategy": "min", "length": 32}
 

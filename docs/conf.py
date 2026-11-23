@@ -140,6 +140,7 @@ autoclass_content = "both"
 
 # Required to get rid of some myst.xref_missing warnings
 myst_heading_anchors = 3
+myst_enable_extensions = ["html_image"]
 
 
 # https://github.com/readthedocs/sphinx-autoapi/issues/202#issuecomment-907582382

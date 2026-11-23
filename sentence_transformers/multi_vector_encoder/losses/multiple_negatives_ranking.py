@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from functools import partial
 from typing import Any
 
 import torch
@@ -9,7 +10,7 @@ from torch import Tensor, nn
 
 from sentence_transformers.base.losses.merged_forward import embed_columns_padded
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
-from sentence_transformers.multi_vector_encoder.scoring import colbert_scores
+from sentence_transformers.multi_vector_encoder.scoring.colbert import _colbert_scores
 from sentence_transformers.util import (
     all_gather_padded,
     get_rank,
@@ -23,7 +24,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
 
     For each query in the batch, the matched positive document is treated as the positive sample, and all
     other in-batch documents (plus any explicitly-provided hard negatives) serve as negatives. Scoring uses
-    MaxSim by default. Pass a different ``similarity_fct`` (e.g.
+    the model's similarity by default. Pass a different ``similarity_fct`` (e.g.
     :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRScores`) to switch scoring strategies
     without changing the loss.
 
@@ -40,7 +41,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
             reasonable start.
         similarity_fct: Scoring callable. Receives queries ``(Q, q_tokens, dim)`` and stacked documents
             ``(Q, N, d_tokens, dim)`` and returns ``(Q, Q*N)`` with query-major ordering. Defaults to
-            :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_scores`. Pass
+            ``None``, which uses ``model.similarity`` with this document layout. Pass
             :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRScores` for XTR-style scoring.
         mini_batch_size: Maximum number of rows per model forward during the **embedding** phase. The
             document columns are merged into one ``batch_size * N``-row batch and split into row chunks,
@@ -119,7 +120,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
             raise ValueError("Scale must be a positive value.")
         self.model = model
         self.scale = scale
-        self.similarity_fct = similarity_fct if similarity_fct is not None else colbert_scores
+        self.similarity_fct = similarity_fct
         self.mini_batch_size = mini_batch_size
         self.score_mini_batch_size = score_mini_batch_size
         self.gather_across_devices = gather_across_devices
@@ -127,7 +128,7 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
     def get_config_dict(self) -> dict[str, Any]:
         return {
             "scale": self.scale,
-            "similarity_fct": similarity_fct_name(self.similarity_fct),
+            "similarity_fct": similarity_fct_name(self.similarity_fct) if self.similarity_fct is not None else None,
             "mini_batch_size": self.mini_batch_size,
             "score_mini_batch_size": self.score_mini_batch_size,
             "gather_across_devices": self.gather_across_devices,
@@ -165,11 +166,15 @@ class MultiVectorMultipleNegativesRankingLoss(nn.Module):
         docs_stacked, docs_mask_stacked = stack_padded_token_embeddings(doc_embeddings, doc_masks)
 
         step = self.score_mini_batch_size or batch_size
+        similarity_fct = self.similarity_fct
+        if similarity_fct is None:
+            similarity_fct = partial(_colbert_scores, self.model.similarity)
+
         score_chunks = []
         for begin in range(0, batch_size, step):
             end = begin + step
             score_chunks.append(
-                self.similarity_fct(
+                similarity_fct(
                     query_embeddings[begin:end],
                     docs_stacked,
                     queries_mask=q_mask[begin:end],

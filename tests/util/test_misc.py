@@ -1,10 +1,58 @@
 from __future__ import annotations
 
+import sys
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 
-from sentence_transformers.util.misc import append_to_last_row, import_module_class
+from sentence_transformers.util.misc import _to_list, append_to_last_row, import_module_class
+
+
+@pytest.mark.parametrize("values", [[], [1, 2], ["a", "b"], [["a", "b"], ["c", "d"]]])
+def test_to_list_numpy(values) -> None:
+    assert _to_list(np.array(values)) == values
+
+
+@pytest.mark.parametrize("dataset_format", [None, "numpy", "torch", "pandas", "arrow"])
+@pytest.mark.parametrize("indices", [None, [2, 0, 2]])
+def test_to_list_batches_columns(dataset_format, indices, monkeypatch: pytest.MonkeyPatch) -> None:
+    datasets = pytest.importorskip("datasets")
+    dataset = datasets.Dataset.from_dict({"text": ["a", "b", "c"]}).with_format(dataset_format)
+    if indices is not None:
+        dataset = dataset.select(indices)
+    column = dataset["text"]
+    expected = list(column)
+    if isinstance(column, getattr(datasets, "Column", ())):
+        monkeypatch.setattr(type(column), "__iter__", lambda self: pytest.fail("iterated row by row"))
+    assert _to_list(column) == expected
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_to_list_batches_custom_transforms(nested: bool) -> None:
+    datasets = pytest.importorskip("datasets")
+    if nested and not hasattr(datasets, "Column"):
+        pytest.skip("Nested columns require datasets >= 4")
+
+    def transform(batch):
+        return {"text": [{"value": f"{text['value']}-{i}"} for i, text in enumerate(batch["text"])]}
+
+    column = datasets.Dataset.from_dict({"text": [{"value": "a"}, {"value": "b"}]}).with_transform(transform)["text"]
+    expected = ["a-0", "b-1"] if nested else [{"value": "a-0"}, {"value": "b-1"}]
+    if nested:
+        column = column["value"]
+    assert _to_list(column) == expected
+
+
+@pytest.mark.parametrize("missing", ["datasets", "Column"])
+def test_to_list_without_column(missing: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    if missing == "datasets":
+        monkeypatch.setitem(sys.modules, "datasets", None)
+    else:
+        datasets = pytest.importorskip("datasets")
+        monkeypatch.delattr(datasets, "Column", raising=False)
+    assert _to_list(iter(["a", "b"])) == ["a", "b"]
+    assert _to_list(np.array([["a", "b"]])) == [["a", "b"]]
 
 
 def test_import_module_class_forwards_token_to_dynamic_module():

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
@@ -12,6 +10,7 @@ import tqdm
 from sklearn.metrics import average_precision_score, ndcg_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.util.metrics import _reciprocal_rank
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -29,6 +28,7 @@ class RerankingEvaluator(BaseEvaluator):
 
     Given a query and a list of documents, it computes the score [query, doc_i] for all possible
     documents and sorts them in decreasing order. Then, MRR@10, NDCG@10 and MAP is compute to measure the quality of the ranking.
+    MRR is averaged over all possible orderings of documents with equal scores.
 
     Args:
         samples (list): A list of dictionaries, where each dictionary represents a sample and has the following keys:
@@ -132,6 +132,10 @@ class RerankingEvaluator(BaseEvaluator):
         self.samples = [
             sample for sample in self.samples if len(sample["positive"]) > 0 and len(sample["negative"]) > 0
         ]
+        if not self.samples:
+            raise ValueError(
+                "RerankingEvaluator needs at least one sample with at least one positive and one negative document."
+            )
 
         self.csv_file = "RerankingEvaluator" + ("_" + name if name else "") + f"_results_@{self.at_k}.csv"
         self.csv_headers = [
@@ -144,7 +148,7 @@ class RerankingEvaluator(BaseEvaluator):
         self.write_csv = write_csv
         self.primary_metric = f"ndcg@{self.at_k}"
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
         """
@@ -159,17 +163,6 @@ class RerankingEvaluator(BaseEvaluator):
         Returns:
             Dict[str, float]: A dictionary containing the evaluation metrics.
         """
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-
-        logger.info(f"RerankingEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
         scores = self.compute_metrics(model)
         mean_ap = scores["map"]
@@ -187,26 +180,11 @@ class RerankingEvaluator(BaseEvaluator):
         logger.info(f"MRR@{self.at_k}: {mean_mrr * 100:.2f}")
         logger.info(f"NDCG@{self.at_k}: {mean_ndcg * 100:.2f}")
 
-        #### Write results to disk
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow([epoch, steps, mean_ap, mean_mrr, mean_ndcg])
-
-        metrics = {
+        return {
             "map": mean_ap,
             f"mrr@{self.at_k}": mean_mrr,
             f"ndcg@{self.at_k}": mean_ndcg,
         }
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
 
     def compute_metrics(self, model: SentenceTransformer):
         """
@@ -274,17 +252,11 @@ class RerankingEvaluator(BaseEvaluator):
             if len(pred_scores.shape) > 1:
                 pred_scores = pred_scores[0]
 
-            pred_scores_argsort = torch.argsort(-pred_scores)  # Sort in decreasing order
             pred_scores = pred_scores.cpu().tolist()
 
             # Compute MRR score
             is_relevant = [1] * num_pos + [0] * num_neg
-            mrr_score = 0
-            for rank, index in enumerate(pred_scores_argsort[0 : self.at_k]):
-                if is_relevant[index]:
-                    mrr_score = 1 / (rank + 1)
-                    break
-            all_mrr_scores.append(mrr_score)
+            all_mrr_scores.append(_reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
 
             # Compute NDCG score
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))
@@ -331,16 +303,10 @@ class RerankingEvaluator(BaseEvaluator):
             if len(pred_scores.shape) > 1:
                 pred_scores = pred_scores[0]
 
-            pred_scores_argsort = torch.argsort(-pred_scores)  # Sort in decreasing order
             pred_scores = pred_scores.cpu().tolist()
 
             # Compute MRR score
-            mrr_score = 0
-            for rank, index in enumerate(pred_scores_argsort[0 : self.at_k]):
-                if is_relevant[index]:
-                    mrr_score = 1 / (rank + 1)
-                    break
-            all_mrr_scores.append(mrr_score)
+            all_mrr_scores.append(_reciprocal_rank(is_relevant, pred_scores, k=self.at_k))
 
             # Compute NDCG score
             all_ndcg_scores.append(ndcg_score([is_relevant], [pred_scores], k=self.at_k))
@@ -387,3 +353,6 @@ class RerankingEvaluator(BaseEvaluator):
         if self.truncate_dim is not None:
             config_dict["truncate_dim"] = self.truncate_dim
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        return metrics[header.lower()]

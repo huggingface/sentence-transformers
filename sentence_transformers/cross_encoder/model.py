@@ -5,7 +5,8 @@ import inspect
 import logging
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
-from typing import Any, Literal, overload
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import numpy as np
 import torch
@@ -28,6 +29,10 @@ from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
+from sentence_transformers.util.misc import _to_list
+
+if TYPE_CHECKING:
+    from transformers import KernelConfig
 
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
 logger = transformers_logging.get_logger(__name__)
@@ -49,9 +54,9 @@ class CrossEncoder(BaseModel, FitMixin):
     for individual sentences.
 
     Args:
-        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise, tries
-            to download a pre-trained CrossEncoder model. If that fails, tries to construct a model from the
-            Hugging Face Hub with that name. Defaults to None.
+        model_name_or_path (str or Path, optional): If a filepath on disk, loads the model from that path. Otherwise,
+            tries to download a pre-trained CrossEncoder model. If that fails, tries to construct a model
+            from the Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
             create custom CrossEncoder models from scratch. Defaults to None.
         device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``, ``"neuron"``) that should be used for
@@ -76,6 +81,10 @@ class CrossEncoder(BaseModel, FitMixin):
         token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
             private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
             credentials saved with ``hf auth login``, if available.
+        use_kernels (bool, optional): Enable the default backbone kernels supported by the model and device.
+            Requires the torch backend and compatible kernel dependencies. Defaults to False.
+        kernel_config (KernelConfig, optional): Override backbone kernel mappings. Providing a configuration
+            also enables kernels. These settings are runtime-only. Defaults to None.
         model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
             Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -124,8 +133,8 @@ class CrossEncoder(BaseModel, FitMixin):
             Use a ``torch.nn.Module`` (e.g. ``nn.Identity()``) if the model will be saved: plain functions
             emit a warning on save. Defaults to None.
         keep_in_fp32_modules (list[str], optional): Paths to plain linear layers that compute and return
-            fp32, including under autocast. Parameter storage is unchanged. None inherits the saved
-            selection, or selects nothing for a model without one. Pass [] to disable a saved selection.
+            fp32 on the torch backend, including under autocast. Parameter storage is unchanged. None inherits
+            the saved selection, or selects nothing for a model without one. Pass [] to disable a saved selection.
             This feature is experimental. Its API and behavior may change, and it may be removed in a future release.
             See :meth:`~sentence_transformers.cross_encoder.model.CrossEncoder.set_keep_in_fp32_modules`.
 
@@ -163,7 +172,7 @@ class CrossEncoder(BaseModel, FitMixin):
     @cross_encoder_init_args_decorator
     def __init__(
         self,
-        model_name_or_path: str | None = None,
+        model_name_or_path: str | Path | None = None,
         *,
         modules: list[nn.Module] | OrderedDict[str, nn.Module] | None = None,
         device: str | None = None,
@@ -177,6 +186,8 @@ class CrossEncoder(BaseModel, FitMixin):
         model_kwargs: dict | None = None,
         processor_kwargs: dict | None = None,
         config_kwargs: dict | None = None,
+        use_kernels: bool = False,
+        kernel_config: KernelConfig | None = None,
         model_card_data: CrossEncoderModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
         # CrossEncoder-specific args
@@ -185,6 +196,9 @@ class CrossEncoder(BaseModel, FitMixin):
         activation_fn: Callable | None = None,
         keep_in_fp32_modules: list[str] | None = None,
     ) -> None:
+        if isinstance(model_name_or_path, Path):
+            model_name_or_path = str(model_name_or_path)
+
         # Preserve an explicit activation before parsing the saved configuration.
         self.activation_fn = activation_fn
         self.keep_in_fp32_modules = keep_in_fp32_modules
@@ -207,6 +221,8 @@ class CrossEncoder(BaseModel, FitMixin):
             local_files_only=local_files_only,
             token=token,
             model_kwargs=model_kwargs,
+            use_kernels=use_kernels,
+            kernel_config=kernel_config,
             processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             model_card_data=model_card_data,
@@ -218,7 +234,10 @@ class CrossEncoder(BaseModel, FitMixin):
 
         if self.activation_fn is None:
             self.activation_fn = self.get_default_activation_fn()
-        self.set_keep_in_fp32_modules([] if self.keep_in_fp32_modules is None else self.keep_in_fp32_modules)
+        if self.keep_in_fp32_modules is None:
+            self.keep_in_fp32_modules = []
+        if self.backend == "torch" or keep_in_fp32_modules is not None:
+            self.set_keep_in_fp32_modules(self.keep_in_fp32_modules)
 
     def set_keep_in_fp32_modules(self, module_names: list[str]) -> None:
         """Run selected linear layers in fp32, even when autocast is enabled.
@@ -226,8 +245,8 @@ class CrossEncoder(BaseModel, FitMixin):
         Selected layers return fp32 outputs during inference and training, while their stored
         weights retain their dtype. This requires the torch backend.
 
-        The selection is saved with the model and restored when loading. Accelerate device
-        placement and offloading hooks are preserved.
+        The selection is saved with the model and applied when loading on the torch backend.
+        Accelerate device placement and offloading hooks are preserved.
 
         Note:
             This feature is experimental. Its API and behavior may change, and it may be removed
@@ -240,8 +259,11 @@ class CrossEncoder(BaseModel, FitMixin):
         """
         if not isinstance(module_names, (list, tuple)) or any(not isinstance(name, str) for name in module_names):
             raise ValueError("keep_in_fp32_modules must be a list of module paths.")
-        if module_names and self.backend != "torch":
-            raise ValueError("keep_in_fp32_modules is supported only by the torch backend.")
+        if self.backend != "torch":
+            if module_names:
+                raise ValueError("keep_in_fp32_modules is supported only by the torch backend.")
+            self.keep_in_fp32_modules = []
+            return
 
         names = list(dict.fromkeys(module_names))
         selected = {self.get_submodule(name) for name in names}
@@ -617,9 +639,7 @@ class CrossEncoder(BaseModel, FitMixin):
                 inputs = pair
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index.
-            # The annotation pins ndarray.tolist()'s Any so checkers keep the narrowed input type.
-            materialized: list[PairInput] = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            materialized: list[PairInput] = _to_list(inputs)
             inputs = materialized
 
         prompt = self._resolve_prompt(prompt, prompt_name)
@@ -801,6 +821,13 @@ class CrossEncoder(BaseModel, FitMixin):
                 "CrossEncoder.rank() only works for models with num_labels=1. "
                 "Consider using CrossEncoder.predict() with input pairs instead."
             )
+        if isinstance(documents, (str, dict)):
+            raise TypeError(
+                "CrossEncoder.rank() expects a collection of documents, but received a single input. "
+                "Wrap it in a list: rank(query, [document])."
+            )
+        if top_k is not None and top_k < 0:
+            raise ValueError(f"top_k must be a non-negative integer or None, but got {top_k}.")
         query_doc_pairs: list[PairInput] = [[query, doc] for doc in documents]
         scores = self.predict(
             inputs=query_doc_pairs,

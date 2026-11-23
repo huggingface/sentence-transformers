@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -84,8 +82,11 @@ class CrossEncoderClassificationEvaluator(BaseEvaluator):
         write_csv: bool = True,
         **kwargs,
     ):
+        super().__init__()
         if len(sentence_pairs) != len(labels):
             raise ValueError("sentence_pairs and labels must have the same length")
+        if len(sentence_pairs) == 0:
+            raise ValueError("CrossEncoderClassificationEvaluator needs at least one sentence pair with a label.")
 
         self.sentence_pairs = sentence_pairs
         self.labels = np.asarray(labels)
@@ -99,18 +100,9 @@ class CrossEncoderClassificationEvaluator(BaseEvaluator):
         self.csv_file = "CrossEncoderClassificationEvaluator" + ("_" + name if name else "") + "_results.csv"
         self.write_csv = write_csv
 
-    def __call__(
+    def evaluate(
         self, model: CrossEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-
-        logger.info(f"CrossEncoderClassificationEvaluator: Evaluating the model on {self.name} dataset{out_txt}:")
         pred_scores = model.predict(
             self.sentence_pairs,
             prompt_name=self.prompt_name,
@@ -173,17 +165,10 @@ class CrossEncoderClassificationEvaluator(BaseEvaluator):
             self.csv_headers = ["epoch", "steps", "Macro_F1", "Micro_F1", "Weighted_F1"]
             self.primary_metric = "f1_macro"
 
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow([epoch, steps, *metrics.values()])
-
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        header = header.lower()
+        if header in ("macro_f1", "micro_f1", "weighted_f1"):
+            header = f"f1_{header.removesuffix('_f1')}"
+        return metrics[header]

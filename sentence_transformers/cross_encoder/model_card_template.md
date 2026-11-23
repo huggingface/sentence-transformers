@@ -81,14 +81,6 @@ Then you can load this model and run inference.
 {{ usage_snippet }}
 
 <!--
-### Direct Usage (Transformers)
-
-<details><summary>Click to see the direct usage in Transformers</summary>
-
-</details>
--->
-
-<!--
 ### Downstream Usage (Sentence Transformers)
 
 You can finetune this model on your own dataset.

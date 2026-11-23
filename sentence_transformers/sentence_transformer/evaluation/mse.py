@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
@@ -11,6 +9,7 @@ if TYPE_CHECKING:
     import numpy as np
 
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
+
 
 logger = logging.getLogger(__name__)
 
@@ -102,43 +101,18 @@ class MSEEvaluator(BaseEvaluator):
 
         self.source_embeddings = self.embed_inputs(teacher_model, source_sentences)
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch=-1, steps=-1
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-
         target_embeddings = self.embed_inputs(model, self.target_sentences)
 
         mse = ((self.source_embeddings - target_embeddings) ** 2).mean()
         mse = (mse * 100).item()
 
-        logger.info(f"MSE evaluation (lower = better) on the {self.name} dataset{out_txt}:")
         logger.info(f"MSE (*100):\t{mse:4f}")
 
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow([epoch, steps, mse])
-
         # Return negative score as SentenceTransformers maximizes the performance
-        metrics = {"negative_mse": -mse}
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
+        return {"negative_mse": -mse}
 
     def embed_inputs(
         self,
@@ -164,3 +138,8 @@ class MSEEvaluator(BaseEvaluator):
         if self.truncate_dim is not None:
             config_dict["truncate_dim"] = self.truncate_dim
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        if header == "MSE":
+            return -metrics["negative_mse"]
+        return metrics[header]

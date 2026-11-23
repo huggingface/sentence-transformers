@@ -18,7 +18,7 @@ from sentence_transformers.base.losses.gradcache import (
     _validate_mini_batch_num_tokens,
 )
 from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
-from sentence_transformers.multi_vector_encoder.scoring import colbert_scores
+from sentence_transformers.multi_vector_encoder.scoring.colbert import _colbert_scores
 from sentence_transformers.util import (
     all_gather_padded,
     cat_padded_token_embeddings,
@@ -48,8 +48,8 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
             (:func:`~sentence_transformers.multi_vector_encoder.scoring.mean_colbert_scores`), each score
             is divided by its query's token count, so a scale of roughly the average query length is a
             reasonable start.
-        similarity_fct: Scoring callable. Defaults to
-            :func:`~sentence_transformers.multi_vector_encoder.scoring.colbert_scores`. Pass
+        similarity_fct: Scoring callable. Defaults to ``None``, which uses ``model.similarity``
+            with the stacked document layout described in ``MultiVectorMultipleNegativesRankingLoss``. Pass
             :class:`~sentence_transformers.multi_vector_encoder.scoring.XTRScores` for XTR-style scoring.
         mini_batch_size: Chunk size for the **embedding** forward / backward pass. Keep small enough that a
             single chunk fits in GPU memory.
@@ -146,7 +146,7 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
             raise ValueError("Scale must be a positive value.")
         self.model = model
         self.scale = scale
-        self.similarity_fct = similarity_fct if similarity_fct is not None else colbert_scores
+        self.similarity_fct = similarity_fct
         self.mini_batch_size = mini_batch_size
         self.mini_batch_num_tokens = mini_batch_num_tokens
         self.score_mini_batch_size = score_mini_batch_size if score_mini_batch_size is not None else mini_batch_size
@@ -156,7 +156,7 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
     def get_config_dict(self) -> dict[str, Any]:
         return {
             "scale": self.scale,
-            "similarity_fct": similarity_fct_name(self.similarity_fct),
+            "similarity_fct": similarity_fct_name(self.similarity_fct) if self.similarity_fct is not None else None,
             "mini_batch_size": self.mini_batch_size,
             "mini_batch_num_tokens": self.mini_batch_num_tokens,
             "score_mini_batch_size": self.score_mini_batch_size,
@@ -243,12 +243,16 @@ class CachedMultiVectorMultipleNegativesRankingLoss(nn.Module):
         if self.gather_across_devices:
             labels = labels + get_rank() * batch_size * N
 
+        similarity_fct = self.similarity_fct
+        if similarity_fct is None:
+            similarity_fct = partial(_colbert_scores, self.model.similarity)
+
         losses: list[Tensor] = []
         for begin in tqdm.trange(
             0, batch_size, self.score_mini_batch_size, desc="Score mini-batches", disable=not self.show_progress_bar
         ):
             end = begin + self.score_mini_batch_size
-            scores = self.similarity_fct(
+            scores = similarity_fct(
                 embeddings_anchor[begin:end],
                 docs_stacked,
                 queries_mask=q_mask[begin:end],

@@ -24,6 +24,7 @@ from sentence_transformers.base.losses.gradcache import _minibatch_ranges
 from sentence_transformers.base.losses.merged_forward import column_merging_disabled, merge_feature_batches
 from sentence_transformers.multi_vector_encoder import losses as mve_losses
 from sentence_transformers.multi_vector_encoder.modules import MultiVectorMask
+from sentence_transformers.util import maxsim, maxsim_pairwise
 
 
 class _PassthroughModel(nn.Module):
@@ -35,6 +36,9 @@ class _PassthroughModel(nn.Module):
 
     def __call__(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
         return features
+
+    similarity = staticmethod(maxsim)
+    similarity_pairwise = staticmethod(maxsim_pairwise)
 
 
 def _make_feature(t_tokens: int, batch: int, dim: int, seed: int) -> dict[str, Tensor]:
@@ -74,7 +78,10 @@ def test_losses_preserve_encoder_masks(varlen_features, loss_cls) -> None:
         features["attention_mask"][:, -1] = False
     varlen_features[0]["query_expansion_positions"] = ~varlen_features[0]["attention_mask"]
     original_masks = [features["attention_mask"].clone() for features in varlen_features]
-    loss = loss_cls(model=MultiVectorMask(keep_only_token_ids=[1]))
+    model = MultiVectorMask(keep_only_token_ids=[1])
+    model.similarity = maxsim
+    model.similarity_pairwise = maxsim_pairwise
+    loss = loss_cls(model=model)
     labels = torch.tensor([[2.0, 1.0]]).expand(4, 2)
 
     with column_merging_disabled():
@@ -102,7 +109,7 @@ def test_cached_mnr_handles_varlen_document_columns(varlen_features) -> None:
     value.backward()
 
 
-class _GridCheckingModel(nn.Module):
+class _GridCheckingModel(_PassthroughModel):
     """Asserts that flattened VLM tensors arrive consistently sliced in every mini-batch call:
     ``pixel_values`` holds patch rows (not sample rows), so a naive ``v[begin:end]`` slice hands the
     vision tower patch rows from the wrong samples while the sliced grid demands a different count."""
@@ -234,7 +241,7 @@ def test_cached_mnr_rejects_non_positive_token_budget() -> None:
         mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel(), mini_batch_num_tokens=0)
 
 
-class _RaggedTrimPassthroughModel(nn.Module):
+class _RaggedTrimPassthroughModel(_PassthroughModel):
     """Trims trailing pad off each mini-batch to the per-batch real max, simulating a
     native-resolution VLM whose vision encoder emits ``T`` proportional to the batch's longest
     real sequence. Successive mini-batches in the GradCache path therefore see different ``T``s."""
@@ -330,7 +337,7 @@ def test_mnr_fixed_length_regression() -> None:
     assert torch.isfinite(value)
 
 
-class _TaskRecordingModel(nn.Module):
+class _TaskRecordingModel(_PassthroughModel):
     """Records the ``task`` passed on each call and passes features through."""
 
     def __init__(self) -> None:
@@ -369,7 +376,7 @@ def test_cached_mnr_stamped_task_reaches_backward_hook(varlen_features) -> None:
     assert all(task == "document" for task in model.seen_tasks), model.seen_tasks
 
 
-class _MaskRewritingModel(nn.Module):
+class _MaskRewritingModel(_PassthroughModel):
     """Returns a FRESH output dict whose attention_mask excludes the last two document positions,
     mimicking a mask module (e.g. skiplist) rewriting the scoring mask. The input dict keeps its
     original mask, so a loss reading the input mask scores excluded positions."""
@@ -449,7 +456,7 @@ def test_similarity_fct_config_includes_hyperparameters() -> None:
     assert kd.get_config_dict()["similarity_fct"] == "XTRKDScores(top_k=8, chunk_elements=None)"
 
     default = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
-    assert default.get_config_dict()["similarity_fct"] == "colbert_scores"
+    assert default.get_config_dict()["similarity_fct"] is None
 
 
 def test_mnr_gather_across_devices_single_process_matches_no_gather(varlen_features) -> None:
@@ -601,7 +608,7 @@ def test_pairwise_scorers_match_the_diagonal_of_their_matrix_form() -> None:
     assert torch.allclose(pairwise, xtr_diagonal, atol=1e-5)
 
 
-class _TokenizingModel(nn.Module):
+class _TokenizingModel(_PassthroughModel):
     """Embeds integer ``input_ids`` as one-hot vectors, mirroring how a real model turns padded
     token batches into embeddings while the attention mask marks the real positions."""
 
@@ -839,7 +846,7 @@ def test_margin_mse_accepts_xtr_pairwise_metric() -> None:
     assert loss.get_config_dict()["similarity_fct"] == "xtr_scores_pairwise"
 
     default = mve_losses.MultiVectorMarginMSELoss(model=_PassthroughModel())
-    assert default.get_config_dict()["similarity_fct"] == "colbert_scores_pairwise"
+    assert default.get_config_dict()["similarity_fct"] is None
 
 
 def test_similarity_fct_config_renders_partial_bindings() -> None:
@@ -880,7 +887,7 @@ def test_distill_kl_div_separate_temperatures() -> None:
     )
     assert split(build_features(), labels).item() != pytest.approx(shared_value)
     assert split.get_config_dict() == {
-        "similarity_fct": "colbert_kd_scores",
+        "similarity_fct": None,
         "temperature": 1.0,
         "student_temperature": 0.5,
         "teacher_temperature": 2.0,

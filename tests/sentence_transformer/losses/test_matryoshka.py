@@ -7,8 +7,10 @@ import torch
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.base.modules import Dense
+from sentence_transformers.base.trainer import BaseTrainer
 from sentence_transformers.sentence_transformer.losses import (
     CachedMultipleNegativesRankingLoss,
+    Matryoshka2dLoss,
     MatryoshkaLoss,
     MSELoss,
     MultipleNegativesRankingLoss,
@@ -221,6 +223,42 @@ def test_mse_loss_matryoshka_per_column_teacher(stsb_bert_tiny_model):
     assert output.item() == pytest.approx(expected.item())
 
 
+@pytest.mark.parametrize("wrapped", [False, True], ids=["bare", "wrapped"])
+def test_mse_loss_matryoshka_with_model_truncate_dim(stsb_bert_tiny_model, wrapped):
+    from tests.sentence_transformer.losses.utils import assert_trained, gradients
+
+    model = stsb_bert_tiny_model.cpu().eval()
+    loss = MatryoshkaLoss(model=model, loss=MSELoss(model=model), matryoshka_dims=[128, 64, 32])
+    texts = ["A man is eating food.", "A plane is taking off."]
+    labels = torch.randn(2, 128)
+    expected = loss([model.preprocess(texts)], labels)
+    expected.backward()
+    expected_grads = gradients(model)
+    assert_trained(expected_grads)
+    model.zero_grad()
+
+    model.truncate_dim = 32
+    if wrapped:
+
+        class ModelWrapper(torch.nn.Module):
+            def __init__(self, module):
+                super().__init__()
+                self.module = module
+
+            def forward(self, *args, **kwargs):
+                return self.module(*args, **kwargs)
+
+        class _StubTrainer:
+            override_model_in_loss = BaseTrainer.override_model_in_loss
+
+        _StubTrainer().override_model_in_loss(loss, ModelWrapper(model))
+
+    output = loss([model.preprocess(texts)], labels)
+    torch.testing.assert_close(output, expected)
+    output.backward()
+    torch.testing.assert_close(gradients(model), expected_grads)
+
+
 @pytest.mark.parametrize("architecture", ["concatenated_pooling", "dense_projection"])
 @pytest.mark.parametrize("truncate_dim", [None, 2])
 @pytest.mark.parametrize("loss_cls", [MultipleNegativesRankingLoss, CachedMultipleNegativesRankingLoss])
@@ -296,3 +334,50 @@ def test_cached_loss_behind_wrappers_matches_non_cached(stsb_bert_tiny_model: Se
     assert_trained(cached_grads)
     torch.testing.assert_close(cached_value, plain_value, rtol=1e-4, atol=1e-5)
     torch.testing.assert_close(cached_grads, plain_grads, rtol=1e-4, atol=1e-4)
+
+
+@pytest.mark.parametrize("loss_cls", [MatryoshkaLoss, Matryoshka2dLoss])
+def test_matryoshka_loss_with_dictionary_of_losses(
+    stsb_bert_tiny_model: SentenceTransformer, loss_cls: type[torch.nn.Module]
+) -> None:
+    from tests.sentence_transformer.losses.utils import assert_trained, disable_dropout, gradients
+
+    class TwoPartLoss(torch.nn.Module):
+        def __init__(self, loss: torch.nn.Module, as_dict: bool = True) -> None:
+            super().__init__()
+            self.loss = loss
+            self.as_dict = as_dict
+
+        def forward(self, features, labels):
+            loss = self.loss(features, labels)
+            return {"first": loss, "second": 2 * loss} if self.as_dict else 3 * loss
+
+    model = stsb_bert_tiny_model.cpu().train()
+    disable_dropout(model)
+    texts = (["anchor a", "anchor b"], ["doc a", "doc b"])
+    kwargs = {"matryoshka_dims": [128, 64, 32], "matryoshka_weights": [1.0, 0.5, 0.25]}
+    expected_keys = {"first", "second"}
+    if loss_cls is Matryoshka2dLoss:
+        kwargs.update(n_layers_per_step=-1, n_dims_per_step=-1)
+        expected_keys.add("kl_div_loss")
+
+    model.zero_grad(set_to_none=True)
+    features = [model.preprocess(column) for column in texts]
+    expected = loss_cls(model, TwoPartLoss(MultipleNegativesRankingLoss(model), as_dict=False), **kwargs)(
+        features, None
+    )
+    expected.backward()
+    expected_grads = gradients(model)
+
+    model.zero_grad(set_to_none=True)
+    features = [model.preprocess(column) for column in texts]
+    losses = loss_cls(model, TwoPartLoss(MultipleNegativesRankingLoss(model)), **kwargs)(features, None)
+    total = torch.stack(list(losses.values())).sum()
+    total.backward()
+    grads = gradients(model)
+
+    assert losses.keys() == expected_keys
+    torch.testing.assert_close(losses["second"], 2 * losses["first"])
+    torch.testing.assert_close(total, expected)
+    assert_trained(grads)
+    torch.testing.assert_close(grads, expected_grads, rtol=1e-4, atol=1e-5)

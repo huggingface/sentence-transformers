@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Literal
 
 from sentence_transformers.sentence_transformer.evaluation import BinaryClassificationEvaluator
-from sentence_transformers.util import append_to_last_row
 
 if TYPE_CHECKING:
     import numpy as np
@@ -40,7 +38,8 @@ class SparseBinaryClassificationEvaluator(BinaryClassificationEvaluator):
         show_progress_bar (bool, optional): If true, prints a progress bar. Defaults to False.
         write_csv (bool, optional): Write results to a CSV file. Defaults to True.
         max_active_dims (Optional[int], optional): The maximum number of active dimensions to use. `None` uses the model's current `max_active_dims`. Defaults to None.
-        similarity_fn_names (Optional[List[Literal["cosine", "dot", "euclidean", "manhattan"]]], optional): The similarity functions to use. If not specified, defaults to the ``similarity_fn_name`` attribute of the model. Defaults to None.
+        similarity_fn_names (Optional[List[Literal["cosine", "dot", "euclidean", "manhattan"]]], optional): The
+            similarity functions to evaluate. If omitted or empty, use ``model.similarity_fn_name``. Defaults to None.
 
     Example:
         ::
@@ -138,24 +137,18 @@ class SparseBinaryClassificationEvaluator(BinaryClassificationEvaluator):
         if similarity_fn_names:
             self.csv_headers.extend(["active_dims", "sparsity_ratio"])
 
-    def __call__(
+    def evaluate(
         self, model: SparseEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
         self.sparsity_stats = defaultdict(list)
-        metrics = super().__call__(model=model, output_path=output_path, epoch=epoch, steps=steps)
+        metrics = super().evaluate(model=model, output_path=output_path, epoch=epoch, steps=steps)
         for key, value in self.sparsity_stats.items():
             self.sparsity_stats[key] = sum(value) / len(value)
 
-        metrics.update(self.prefix_name_to_metrics(self.sparsity_stats, self.name))
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
+        metrics.update(self.sparsity_stats)
         logger.info(
             f"Model Sparsity: Active Dimensions: {self.sparsity_stats['active_dims']:.1f}, Sparsity Ratio: {self.sparsity_stats['sparsity_ratio']:.4f}"
         )
-        if output_path is not None and self.write_csv:
-            append_to_last_row(
-                os.path.join(output_path, self.csv_file),
-                [self.sparsity_stats["active_dims"], self.sparsity_stats["sparsity_ratio"]],
-            )
 
         return metrics
 
@@ -178,11 +171,6 @@ class SparseBinaryClassificationEvaluator(BinaryClassificationEvaluator):
         for key, value in stat.items():
             self.sparsity_stats[key].append(value)
         return embeddings
-
-    def store_metrics_in_model_card_data(
-        self, model: SparseEncoder, metrics: dict[str, Any], epoch: int = 0, step: int = 0
-    ) -> None:
-        model.model_card_data.set_evaluation_metrics(self, metrics, epoch=epoch, step=step)
 
     def get_config_dict(self) -> dict[str, Any]:
         config_dict = super().get_config_dict()

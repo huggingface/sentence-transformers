@@ -12,6 +12,12 @@
 
 ```{eval-rst}
 .. autoclass:: sentence_transformers.sparse_encoder.evaluation.SparseNanoBEIREvaluator
+```
+
+## SparseNanoRetrievalEvaluator
+
+```{eval-rst}
+.. autoclass:: sentence_transformers.sparse_encoder.evaluation.SparseNanoRetrievalEvaluator
 ``` 
 
 ## SparseEmbeddingSimilarityEvaluator

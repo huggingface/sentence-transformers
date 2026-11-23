@@ -11,6 +11,7 @@ from .deprecated import (
     CESoftmaxAccuracyEvaluator,
 )
 from .nano_beir import CrossEncoderNanoBEIREvaluator
+from .nano_reranking import CrossEncoderNanoRerankingEvaluator
 from .reranking import CrossEncoderRerankingEvaluator
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "CrossEncoderCorrelationEvaluator",
     "CrossEncoderRerankingEvaluator",
     "CrossEncoderNanoBEIREvaluator",
+    "CrossEncoderNanoRerankingEvaluator",
     # Deprecated:
     "CERerankingEvaluator",
     "CECorrelationEvaluator",

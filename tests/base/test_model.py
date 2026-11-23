@@ -533,14 +533,17 @@ def test_save_with_safe_serialization_fallback(
     assert "fallback" in call_log
 
 
-def test_save_load_roundtrip(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, caplog) -> None:
+@pytest.mark.parametrize("path_type", [str, Path])
+def test_save_load_roundtrip(
+    stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, caplog, path_type: type
+) -> None:
     """A model saved and re-loaded should produce the same embeddings."""
     sentences = ["Hello world", "Testing roundtrip"]
     original_embeddings = stsb_bert_tiny_model.encode(sentences)
 
     stsb_bert_tiny_model.save(str(tmp_path))
     with caplog.at_level(logging.INFO, logger="sentence_transformers.base.model"):
-        loaded_model = SentenceTransformer(str(tmp_path))
+        loaded_model = SentenceTransformer(path_type(tmp_path), local_files_only=True)
     loaded_embeddings = loaded_model.encode(sentences)
 
     np.testing.assert_allclose(original_embeddings, loaded_embeddings, atol=1e-5)
@@ -748,6 +751,14 @@ def test_model_path_pointing_to_a_file_is_rejected(
         model_class(str(collision))
 
 
+@pytest.mark.parametrize("model_class", [SentenceTransformer, CrossEncoder, SparseEncoder, MultiVectorEncoder])
+@pytest.mark.parametrize("path_type", [str, Path])
+def test_missing_model_path_raises_file_not_found(tmp_path: Path, model_class: type, path_type: type) -> None:
+    missing = tmp_path / "checkpoints" / "does-not-exist"
+    with pytest.raises(FileNotFoundError, match="not found"):
+        model_class(path_type(missing))
+
+
 def _setup_hub_mocks(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict | list]:
     """Set up common mocks for push_to_hub tests.
 
@@ -925,21 +936,50 @@ def test_tokenize_deprecation_warning(stsb_bert_tiny_model: SentenceTransformer,
     assert isinstance(result, (dict, UserDict))
 
 
-def test_gradient_checkpointing_enable(stsb_bert_tiny_model: SentenceTransformer) -> None:
-    stsb_bert_tiny_model.gradient_checkpointing_enable({"use_reentrant": False})
-    assert stsb_bert_tiny_model.transformers_model.is_gradient_checkpointing
+@pytest.mark.parametrize("name", ["activation_checkpointing", "gradient_checkpointing"])
+@pytest.mark.parametrize(
+    "model_fixture",
+    ["stsb_bert_tiny_model", "reranker_bert_tiny_model", "splade_bert_tiny_model", "mve_bert_tiny_model"],
+)
+def test_checkpointing_enable(name: str, model_fixture: str, request: pytest.FixtureRequest) -> None:
+    model = request.getfixturevalue(model_fixture)
+    getattr(model, f"{name}_enable")(**{f"{name}_kwargs": {"use_reentrant": False}})
+    assert any(getattr(module, "gradient_checkpointing", False) for module in model.transformers_model.modules())
 
 
-def test_gradient_checkpointing_enable_options() -> None:
+@pytest.mark.parametrize("name", ["activation_checkpointing", "gradient_checkpointing"])
+@pytest.mark.parametrize("module_api", ["new", "old", "both"])
+@pytest.mark.parametrize("checkpointing_kwargs", [None, {"use_reentrant": False}])
+def test_checkpointing_enable_options(name: str, module_api: str, checkpointing_kwargs: dict | None) -> None:
     module = nn.Module()
-    module.gradient_checkpointing_enable = MagicMock()
+    if module_api in ("new", "both"):
+        module.activation_checkpointing_enable = MagicMock()
+    if module_api in ("old", "both"):
+        module.gradient_checkpointing_enable = MagicMock()
     model = SentenceTransformer(modules=[module], device="cpu")
 
-    model.gradient_checkpointing_enable({"use_reentrant": False}, every_n_layers=2, offload=True)
+    getattr(model, f"{name}_enable")(**{f"{name}_kwargs": checkpointing_kwargs}, every_n_layers=2, offload=True)
 
-    module.gradient_checkpointing_enable.assert_called_once_with(
-        {"use_reentrant": False}, every_n_layers=2, offload=True
-    )
+    method = module.gradient_checkpointing_enable if module_api == "old" else module.activation_checkpointing_enable
+    method.assert_called_once_with(checkpointing_kwargs, every_n_layers=2, offload=True)
+    if module_api == "both":
+        module.gradient_checkpointing_enable.assert_not_called()
+
+
+@pytest.mark.parametrize("name", ["activation_checkpointing", "gradient_checkpointing"])
+def test_checkpointing_enable_skips_unsupported_wrapper(name: str, caplog: pytest.LogCaptureFixture) -> None:
+    child = nn.Module()
+    child.activation_checkpointing_enable = MagicMock()
+    wrapper = nn.Sequential(child, nn.Identity())
+    wrapper.supports_gradient_checkpointing = False
+    setattr(wrapper, f"{name}_enable", MagicMock())
+    model = SentenceTransformer(modules=[wrapper], device="cpu")
+
+    model.activation_checkpointing_enable({"use_reentrant": False})
+
+    getattr(wrapper, f"{name}_enable").assert_not_called()
+    child.activation_checkpointing_enable.assert_called_once_with({"use_reentrant": False})
+    assert "does not support activation checkpointing" in caplog.text
 
 
 def test_device_property(stsb_bert_tiny_model: SentenceTransformer) -> None:

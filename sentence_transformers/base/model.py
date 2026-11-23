@@ -14,6 +14,7 @@ import traceback
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from functools import cached_property
 from itertools import chain
 from multiprocessing import Queue
@@ -59,7 +60,7 @@ from sentence_transformers.util.misc import ORIGINAL_TRANSFORMER_MODELS
 if TYPE_CHECKING:
     from accelerate.hooks import ModelHook
     from mergekit.merge_methods import BatchOptions
-    from transformers import PretrainedConfig
+    from transformers import KernelConfig, PretrainedConfig
 
 logger = transformers_logging.get_logger(__name__)
 
@@ -116,6 +117,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         model_kwargs: dict[str, Any] | None = None,
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
+        use_kernels: bool = False,
+        kernel_config: KernelConfig | None = None,
         model_card_data: CardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
     ) -> None:
@@ -150,6 +153,10 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
                 private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
                 credentials saved with ``hf auth login``, if available.
+            use_kernels (bool, optional): Enable the default kernels supported by the model and device.
+                Requires the torch backend and compatible kernel dependencies. Defaults to False.
+            kernel_config (KernelConfig, optional): Override kernel mappings. Providing a configuration
+                also enables kernels. These settings are runtime-only. Defaults to None.
             model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
                 Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -200,6 +207,8 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self._model_card_vars = {}
         self._model_card_text = None
         self.backend = backend
+        self.use_kernels = use_kernels or kernel_config is not None
+        self.kernel_config = deepcopy(kernel_config)
 
         if cache_folder is None:
             cache_folder = os.getenv("SENTENCE_TRANSFORMERS_HOME")
@@ -214,6 +223,31 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
             logger.info(f"No device provided, using {device}")
         elif device is not None and device_map is not None:
             logger.warning(f"Ignoring `device={device}` because `model_kwargs['device_map']` takes priority.")
+
+        if self.use_kernels:
+            if backend != "torch":
+                raise ValueError("use_kernels and kernel_config require the torch backend")
+            if kernel_config is not None:
+                from transformers import KernelConfig
+
+                if not isinstance(kernel_config, KernelConfig):
+                    raise TypeError("kernel_config must be a transformers.KernelConfig")
+
+            model_kwargs = dict(model_kwargs or {})
+            model_kwargs.setdefault("use_kernels", True)
+            if self.kernel_config is not None and model_kwargs["use_kernels"]:
+                model_kwargs.setdefault("kernel_config", self.kernel_config)
+
+        pending_kernel_config = (model_kwargs or {}).get("kernel_config")
+        backbone_use_kernels = (model_kwargs or {}).get("use_kernels", False) or pending_kernel_config is not None
+        if model_name_or_path and pending_kernel_config is not None:
+            model_kwargs = dict(model_kwargs)
+            if device_map is None:
+                # Defer custom kernel selection so Transformers uses the backbone's final device.
+                model_kwargs.update(use_kernels=False, kernel_config=None)
+            else:
+                model_kwargs["kernel_config"] = deepcopy(pending_kernel_config)
+                pending_kernel_config = None
 
         if device == "hpu" and importlib.util.find_spec("optimum") is not None:
             from optimum.habana.transformers.modeling_utils import adapt_transformers_to_gaudi
@@ -281,10 +315,13 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         if self._placement_is_delegated:
             self._place_modules()
         else:
-            first_param = next(self[0].parameters(), None)
-            if first_param is not None:
-                for module in list(self.children())[1:]:
-                    module.to(first_param.dtype)
+            sequences = [nn.Sequential(*self.children())]
+            for module in self.modules():
+                if isinstance(module, Router):
+                    sequences.extend(module.sub_modules.values())
+            for sequence in sequences:
+                if len(sequence) > 1 and (first_param := next(sequence[0].parameters(), None)) is not None:
+                    sequence[1:].to(first_param.dtype)
             self.to(device)
         self.is_hpu_graph_enabled = False
 
@@ -313,6 +350,11 @@ class BaseModel(nn.Sequential, PeftAdapterMixin, ABC):
         self.model_card_data.register_model(self)
 
         self._post_init()
+
+        if backbone_use_kernels:
+            for module in self.modules():
+                if isinstance(module, PreTrainedModel):
+                    module.set_use_kernels(True, deepcopy(pending_kernel_config))
 
     @classmethod
     def _load_with_module_classes(
@@ -1622,22 +1664,41 @@ This pull request has been automatically generated to add {self.__class__.__name
             os.makedirs(output_path, exist_ok=True)
         return evaluator(self, output_path)
 
+    def activation_checkpointing_enable(
+        self,
+        activation_checkpointing_kwargs: dict[str, Any] | None = None,
+        **kwargs,
+    ) -> None:
+        """Enable activation checkpointing for the model.
+
+        Args:
+            activation_checkpointing_kwargs (dict[str, Any], optional): Keyword arguments passed to
+                ``torch.utils.checkpoint.checkpoint``.
+            **kwargs: Additional options passed to the underlying model's checkpointing method.
+        """
+        for module in self.modules():
+            if module is self:
+                continue
+            enable = getattr(module, "activation_checkpointing_enable", None)
+            if enable is None:
+                enable = getattr(module, "gradient_checkpointing_enable", None)
+            if enable is not None:
+                if getattr(module, "supports_gradient_checkpointing", True) is False:
+                    # e.g. a `*ForRetrieval` wrapper that doesn't declare support while its inner
+                    # model does: skip it so the supporting submodules still enable checkpointing.
+                    logger.warning_once(
+                        f"{type(module).__name__} does not support activation checkpointing, skipping it."
+                    )
+                    continue
+                enable(activation_checkpointing_kwargs, **kwargs)
+
     def gradient_checkpointing_enable(
         self,
         gradient_checkpointing_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
-        """Enable gradient checkpointing for the model."""
-        for module in self.modules():
-            if module is not self and hasattr(module, "gradient_checkpointing_enable"):
-                if getattr(module, "supports_gradient_checkpointing", True) is False:
-                    # e.g. a `*ForRetrieval` wrapper that doesn't declare support while its inner
-                    # model does: skip it so the supporting submodules still enable checkpointing.
-                    logger.warning_once(
-                        f"{type(module).__name__} does not support gradient checkpointing, skipping it."
-                    )
-                    continue
-                module.gradient_checkpointing_enable(gradient_checkpointing_kwargs, **kwargs)
+        """Alias for :meth:`activation_checkpointing_enable` using the legacy argument name."""
+        self.activation_checkpointing_enable(gradient_checkpointing_kwargs, **kwargs)
 
     def _place_modules(self) -> None:
         """Align auxiliary modules without changing backbones or dispatched submodules."""
@@ -1822,7 +1883,7 @@ This pull request has been automatically generated to add {self.__class__.__name
             target_devices (List[str], optional): PyTorch target devices, e.g. ["cuda:0", "cuda:1", ...],
                 ["npu:0", "npu:1", ...], ["neuron:0", "neuron:1", ...], or ["cpu", "cpu", "cpu", "cpu"].
                 If target_devices is None, :meth:`get_device_name` selects the device type. All available
-                devices of that type are used for CUDA, NPU, and Neuron. Other types use 4 CPU workers.
+                devices of that type are used for CUDA, NPU, XPU, and Neuron. Other types use 4 CPU workers.
                 Neuron pools require a fresh process with the model loaded on CPU.
 
         Returns:
@@ -1837,7 +1898,7 @@ This pull request has been automatically generated to add {self.__class__.__name
 
         if target_devices is None:
             device_type = self.get_device_name().split(":")[0]
-            if device_type in ("cuda", "npu", "neuron"):
+            if device_type in ("cuda", "npu", "xpu", "neuron"):
                 target_devices = [f"{device_type}:{i}" for i in range(getattr(torch, device_type).device_count())]
             else:
                 logger.info("No supported multi-process accelerator is available. Starting 4 CPU workers")

@@ -1,3 +1,10 @@
+"""
+Legacy training interfaces retained for compatibility with existing scripts using fit() and old_fit().
+Use CrossEncoderTrainer for new training code.
+
+Maintenance is limited to compatibility and security fixes. New features are out of scope.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -572,10 +579,10 @@ class FitMixin:
         """Runs evaluation during the training"""
         if evaluator is not None:
             score = evaluator(self, output_path=output_path, epoch=epoch, steps=steps)
-            if callback is not None:
-                callback(score, epoch, steps)
             if isinstance(score, dict) and hasattr(evaluator, "primary_metric") and evaluator.primary_metric in score:
                 score = score[evaluator.primary_metric]
+            if callback is not None:
+                callback(score, epoch, steps)
             if score > self.best_score:
                 self.best_score = score
                 if save_best_model:

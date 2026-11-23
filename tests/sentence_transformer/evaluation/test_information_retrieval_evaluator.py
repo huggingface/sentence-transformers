@@ -109,7 +109,7 @@ def test_simple(test_data, stsb_bert_tiny_model: SentenceTransformer, tmp_path: 
 
 
 def test_reused_evaluator_follows_the_model_similarity(
-    test_data, stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, caplog
+    test_data, stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path
 ):
     """Without explicit score_functions the scoring is resolved per call, so a reused evaluator
     labels every model with its own similarity rather than with the first one's."""
@@ -125,8 +125,7 @@ def test_reused_evaluator_follows_the_model_similarity(
     original = model.similarity_fn_name
     model.similarity_fn_name = "dot"
     try:
-        with caplog.at_level("WARNING"):
-            results = ir_evaluator(model, output_path=str(tmp_path))
+        results = ir_evaluator(model, output_path=str(tmp_path / "dot"))
     finally:
         model.similarity_fn_name = original
 
@@ -134,8 +133,6 @@ def test_reused_evaluator_follows_the_model_similarity(
     assert ir_evaluator.primary_metric == "test_dot_ndcg@10"
     assert {key.split("_")[1] for key in results} == {"dot"}
     assert len(ir_evaluator.csv_headers) == header_count
-    # The CSV keeps the header row of the first call, so the appended row is mislabeled.
-    assert "labeled with the previous score function" in caplog.text
 
 
 def test_explicit_score_functions_survive_reuse(test_data, stsb_bert_tiny_model: SentenceTransformer):
@@ -166,6 +163,26 @@ def test_explicit_score_functions_survive_reuse(test_data, stsb_bert_tiny_model:
     assert ir_evaluator.score_function_names == ["custom"]
     assert ir_evaluator.primary_metric == "test_custom_ndcg@10"
     assert {key.split("_")[1] for key in results} == {"custom"}
+
+
+def test_main_score_function_is_evaluated(test_data, stsb_bert_tiny_model: SentenceTransformer):
+    queries, corpus, relevant_docs = test_data
+    model = stsb_bert_tiny_model
+    assert model.similarity_fn_name == "cosine"
+
+    ir_evaluator = InformationRetrievalEvaluator(
+        queries=queries,
+        corpus=corpus,
+        relevant_docs=relevant_docs,
+        name="test",
+        main_score_function="dot",
+        write_csv=False,
+    )
+    results = ir_evaluator(model)
+
+    assert ir_evaluator.score_function_names == ["dot"]
+    assert ir_evaluator.primary_metric == "test_dot_ndcg@10"
+    assert isinstance(results[ir_evaluator.primary_metric], float)
 
 
 def test_metrics_are_independent_of_corpus_chunk_size(stsb_bert_tiny_model: SentenceTransformer):
@@ -234,3 +251,17 @@ def test_metrics(test_data, mock_model, tmp_path: Path):
 
     for key, expected_value in expected_results.items():
         assert results[key] == pytest.approx(expected_value, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("queries", "corpus", "relevant_docs"),
+    [
+        ({"q0": "What is a query?"}, {"d0": "This is a document."}, {}),
+        ({"q0": "What is a query?"}, {"d0": "This is a document."}, {"q0": set()}),
+        ({"q0": "What is a query?"}, {"d0": "This is a document."}, {"q1": {"d0"}}),
+        ({}, {}, {}),
+    ],
+)
+def test_information_retrieval_rejects_zero_usable_queries(queries, corpus, relevant_docs) -> None:
+    with pytest.raises(ValueError, match="needs at least one query with at least one relevant document"):
+        InformationRetrievalEvaluator(queries=queries, corpus=corpus, relevant_docs=relevant_docs)

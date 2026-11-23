@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal
 
@@ -41,9 +39,9 @@ class TripletEvaluator(BaseEvaluator):
         anchors (List[str]): Sentences to check similarity to. (e.g. a query)
         positives (List[str]): List of positive sentences
         negatives (List[str]): List of negative sentences
-        main_similarity_function (Union[str, SimilarityFunction], optional):
-            The similarity function to use. If not specified, use cosine similarity,
-            dot product, Euclidean, and Manhattan similarity. Defaults to None.
+        main_similarity_function (Union[str, SimilarityFunction], optional): The similarity function to use for the
+            primary metric. Always evaluated when set, even if omitted from ``similarity_fn_names``. Defaults to None
+            (select the highest accuracy among the evaluated similarities).
         margin (Union[float, Dict[str, float]], optional): Margins for various similarity metrics.
             If a float is provided, it will be used as the margin for all similarity metrics.
             If a dictionary is provided, the keys must be 'cosine', 'dot', 'manhattan', and 'euclidean'.
@@ -55,9 +53,8 @@ class TripletEvaluator(BaseEvaluator):
         write_csv (bool): Write results to a CSV file. Defaults to True.
         truncate_dim (int, optional): The dimension to truncate sentence embeddings to.
             `None` uses the model's current truncation dimension. Defaults to None.
-        similarity_fn_names (List[str], optional): List of similarity function names to evaluate.
-            If not specified, evaluate using the ``model.similarity_fn_name``.
-            Defaults to None.
+        similarity_fn_names (List[str], optional): List of similarity function names to evaluate. If omitted or empty,
+            use ``main_similarity_function`` when set, otherwise ``model.similarity_fn_name``. Defaults to None.
 
     Example:
         ::
@@ -112,8 +109,13 @@ class TripletEvaluator(BaseEvaluator):
         self.name = name
         self.truncate_dim = truncate_dim
 
-        assert len(self.anchors) == len(self.positives)
-        assert len(self.anchors) == len(self.negatives)
+        if not (len(self.anchors) == len(self.positives) == len(self.negatives)):
+            raise ValueError(
+                f"anchors ({len(self.anchors)}), positives ({len(self.positives)}) and negatives "
+                f"({len(self.negatives)}) must have the same length."
+            )
+        if len(self.anchors) == 0:
+            raise ValueError("TripletEvaluator needs at least one (anchor, positive, negative) triplet.")
 
         if main_distance_function != "deprecated" and main_similarity_function is None:
             main_similarity_function = main_distance_function
@@ -126,8 +128,11 @@ class TripletEvaluator(BaseEvaluator):
             SimilarityFunction(main_similarity_function) if main_similarity_function else None
         )
         self.similarity_fn_names = similarity_fn_names or []
-        if not self.similarity_fn_names and self.main_similarity_function is not None:
-            self.similarity_fn_names = [self.main_similarity_function.value]
+        if (
+            self.main_similarity_function is not None
+            and self.main_similarity_function.value not in self.similarity_fn_names
+        ):
+            self.similarity_fn_names = [*self.similarity_fn_names, self.main_similarity_function.value]
 
         fn_keys = list(self._get_similarity_functions().keys())
         if unknown_names := sorted(set(self.similarity_fn_names) - set(fn_keys)):
@@ -157,6 +162,7 @@ class TripletEvaluator(BaseEvaluator):
         self.write_csv = write_csv
 
         self._append_csv_headers(self.similarity_fn_names)
+        self._similarity_fn_names_from_model = not self.similarity_fn_names
 
     def _append_csv_headers(self, similarity_fn_names):
         for fn_name in similarity_fn_names:
@@ -174,54 +180,28 @@ class TripletEvaluator(BaseEvaluator):
             negatives.append(example.texts[2])
         return cls(anchors, positives, negatives, **kwargs)
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
+        embeddings_anchors = self.embed_inputs(model, self.anchors, encode_fn_name="query", role="anchor")
+        embeddings_positives = self.embed_inputs(model, self.positives, encode_fn_name="document", role="positive")
+        embeddings_negatives = self.embed_inputs(model, self.negatives, encode_fn_name="document", role="negative")
 
-        logger.info(f"TripletEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
-
-        embeddings_anchors = self.embed_inputs(model, self.anchors, encode_fn_name="query")
-        embeddings_positives = self.embed_inputs(model, self.positives, encode_fn_name="document")
-        embeddings_negatives = self.embed_inputs(model, self.negatives, encode_fn_name="document")
-
-        if not self.similarity_fn_names:
+        if self._similarity_fn_names_from_model and self.similarity_fn_names != [model.similarity_fn_name]:
             self.similarity_fn_names = [model.similarity_fn_name]
+            self.csv_headers = ["epoch", "steps"]
             self._append_csv_headers(self.similarity_fn_names)
 
         similarity_functions = self._get_similarity_functions()
 
         metrics = {}
         for fn_name in self.similarity_fn_names:
-            if fn_name in similarity_functions:
-                positive_scores, negative_scores = similarity_functions[fn_name](
-                    embeddings_anchors, embeddings_positives, embeddings_negatives
-                )
-                accuracy = (positive_scores > negative_scores + self.margin[fn_name]).float().mean().item()
-                metrics[f"{fn_name}_accuracy"] = accuracy
-                logger.info(f"Accuracy {fn_name.capitalize()} Similarity:\t{accuracy:.2%}")
-
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                with open(csv_path, newline="", mode="w", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(self.csv_headers)
-                    writer.writerow([epoch, steps] + list(metrics.values()))
-
-            else:
-                with open(csv_path, newline="", mode="a", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow([epoch, steps] + list(metrics.values()))
+            positive_scores, negative_scores = similarity_functions[fn_name](
+                embeddings_anchors, embeddings_positives, embeddings_negatives
+            )
+            accuracy = (positive_scores > negative_scores + self.margin[fn_name]).float().mean().item()
+            metrics[f"{fn_name}_accuracy"] = accuracy
+            logger.info(f"Accuracy {fn_name.capitalize()} Similarity:\t{accuracy:.2%}")
 
         if len(self.similarity_fn_names) > 1:
             metrics["max_accuracy"] = max(metrics.values())
@@ -234,8 +214,6 @@ class TripletEvaluator(BaseEvaluator):
             else:
                 self.primary_metric = f"{self.similarity_fn_names[0]}_accuracy"
 
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
     def embed_inputs(
@@ -243,6 +221,7 @@ class TripletEvaluator(BaseEvaluator):
         model: SentenceTransformer,
         sentences: SingleInput | Sequence[SingleInput] | np.ndarray,
         encode_fn_name: str | None = None,
+        role: Literal["anchor", "positive", "negative"] | None = None,
         **kwargs,
     ) -> np.ndarray:
         if encode_fn_name == "query":
@@ -275,3 +254,8 @@ class TripletEvaluator(BaseEvaluator):
         if self.truncate_dim is not None:
             config_dict["truncate_dim"] = self.truncate_dim
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        if header.startswith("accuracy_"):
+            header = f"{header.removeprefix('accuracy_')}_accuracy"
+        return metrics[header]

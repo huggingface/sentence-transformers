@@ -44,6 +44,29 @@ def test_triplet_distance_matches_full_precision(dtype, autocast, squared, case)
     assert torch.count_nonzero(actual.diag()) == 0
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("autocast", [False, True])
+def test_cosine_distance_precision_and_diagonal(dtype, autocast):
+    embeddings = torch.tensor([[1.0] * 7] * 2 + [[1.0, -1.0] + [0.0] * 5] * 2, dtype=dtype, requires_grad=True)
+    reference = embeddings.detach().double().requires_grad_()
+    expected = 1 - nn.functional.cosine_similarity(reference[:, None], reference[None, :], dim=-1)
+    loss_fn = BatchAllTripletLoss(
+        nn.Identity(), distance_metric=BatchHardTripletLossDistanceFunction.cosine_distance, margin=1.5
+    )
+    context = torch.autocast("cpu", dtype=torch.bfloat16) if autocast else nullcontext()
+    with context:
+        actual = BatchHardTripletLossDistanceFunction.cosine_distance(embeddings)
+        loss = loss_fn.compute_loss_from_embeddings([embeddings], torch.tensor([0, 0, 1, 1]))
+    actual.sum().backward()
+    expected.sum().backward()
+
+    assert (actual >= 0).all()
+    assert torch.count_nonzero(actual.diag()) == 0
+    torch.testing.assert_close(actual, expected.to(actual.dtype), atol=1e-6, rtol=1e-6)
+    torch.testing.assert_close(loss, loss.new_tensor(0.5))
+    torch.testing.assert_close(embeddings.grad, reference.grad.to(dtype), atol=1e-3, rtol=1e-2)
+
+
 @pytest.mark.parametrize(
     "loss_class", [BatchAllTripletLoss, BatchHardTripletLoss, BatchHardSoftMarginTripletLoss, BatchSemiHardTripletLoss]
 )

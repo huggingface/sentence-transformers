@@ -10,16 +10,21 @@ from sentence_transformers.multi_vector_encoder.modules import (
     BaseTokenPooling,
     HierarchicalTokenPooling,
 )
-from sentence_transformers.util import batch_to_device
+from sentence_transformers.util import batch_to_device, maxsim, maxsim_pairwise
 from tests.utils import skip_fp16_cpu_layer_norm
 
 DIM = 8
 
 
 class _PassthroughModel(nn.Module):
+    similarity = staticmethod(maxsim)
+    similarity_pairwise = staticmethod(maxsim_pairwise)
+
     def __init__(self) -> None:
         super().__init__()
         self.forward_calls = 0
+        self.use_kernels = False
+        self._token_pooling_kernel_config = None
 
     def forward(self, features: dict[str, Tensor], task: str | None = None) -> dict[str, Tensor]:
         self.forward_calls += 1
@@ -162,6 +167,46 @@ def test_token_pooling_with_kd_loss() -> None:
     assert torch.allclose(value, manual_value, atol=1e-6)
     for leaf, manual_sf in zip(leaves, manual_features):
         assert torch.allclose(leaf.grad, manual_sf["token_embeddings"].grad, atol=1e-6)
+
+
+@pytest.mark.parametrize("modifier", ["matryoshka", "token_pooling", "both"])
+def test_modifiers_with_dictionary_of_losses(modifier: str) -> None:
+    class TwoPartLoss(nn.Module):
+        def __init__(self, loss: nn.Module, as_dict: bool) -> None:
+            super().__init__()
+            self.loss = loss
+            self.as_dict = as_dict
+
+        def forward(self, features, labels):
+            loss = self.loss(features, labels)
+            return {"first": loss, "second": 2 * loss} if self.as_dict else 3 * loss
+
+    results = []
+    for as_dict in (False, True):
+        model = _PassthroughModel()
+        features = _build_features()
+        leaves = _leaves(features)
+        loss = TwoPartLoss(_mnrl(model), as_dict)
+        if modifier in ("matryoshka", "both"):
+            loss = mve_losses.MultiVectorMatryoshkaLoss(
+                model, loss, matryoshka_dims=[DIM, DIM // 2], matryoshka_weights=[1.0, 0.5]
+            )
+        if modifier in ("token_pooling", "both"):
+            loss = mve_losses.MultiVectorTokenPoolingLoss(
+                model, loss, token_poolings=[None, HierarchicalTokenPooling(pool_factor=2)], weights=[1.0, 0.5]
+            )
+
+        value = loss(features, None)
+        if as_dict:
+            assert value.keys() == {"first", "second"}
+            torch.testing.assert_close(value["second"], 2 * value["first"])
+            value = torch.stack(list(value.values())).sum()
+        value.backward()
+        grads = [leaf.grad for leaf in leaves]
+        assert all(grad is not None and grad.abs().sum() > 0 for grad in grads)
+        results.append((value.detach(), grads))
+
+    torch.testing.assert_close(results[0], results[1], rtol=1e-5, atol=1e-6)
 
 
 def test_stacked_modifiers_cached_matches_non_cached() -> None:

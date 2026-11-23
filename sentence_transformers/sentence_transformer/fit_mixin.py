@@ -1,3 +1,10 @@
+"""
+Legacy training interfaces retained for compatibility with existing scripts using fit() and old_fit().
+Use SentenceTransformerTrainer for new training code.
+
+Maintenance is limited to compatibility and security fixes. New features are out of scope.
+"""
+
 from __future__ import annotations
 
 import json
@@ -709,6 +716,8 @@ class FitMixin:
 
         if evaluator is not None:
             score = evaluator(self, output_path=eval_path, epoch=epoch, steps=steps)
+            if isinstance(score, dict):
+                score = score[evaluator.primary_metric]
             if callback is not None:
                 callback(score, epoch, steps)
             if score > self.best_score:

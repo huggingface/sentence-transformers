@@ -12,6 +12,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_su
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer import evaluation
+from sentence_transformers.sparse_encoder.evaluation import SparseBinaryClassificationEvaluator
 
 
 def test_BinaryClassificationEvaluator_find_best_f1_and_threshold() -> None:
@@ -183,3 +184,29 @@ def test_BinaryClassificationEvaluator_csv_columns_are_aligned(
 
     assert len(rows) == 2
     assert len(rows[1]) == len(rows[0])
+
+
+@pytest.mark.parametrize(
+    "evaluator_cls", [evaluation.BinaryClassificationEvaluator, SparseBinaryClassificationEvaluator]
+)
+@pytest.mark.parametrize(
+    ("sentences1", "sentences2", "labels", "message"),
+    [
+        ([], [], [], "at least one"),
+        (["a"], ["b", "c"], [0], "must have the same length"),
+        (["a"], ["b"], [0, 1], "must have the same length"),
+        (["a", "b"], ["c", "d"], [0, 2], "labels must be 0 or 1, got 2"),
+    ],
+)
+def test_binary_classification_rejects_invalid_inputs(evaluator_cls, sentences1, sentences2, labels, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        evaluator_cls(sentences1, sentences2, labels)
+
+
+@pytest.mark.parametrize(
+    "evaluator_cls", [evaluation.BinaryClassificationEvaluator, SparseBinaryClassificationEvaluator]
+)
+@pytest.mark.parametrize("labels", [[1, 0], [True, False], [1.0, 0.0], np.array([1, 0])])
+def test_binary_classification_accepts_binary_label_types(evaluator_cls, labels) -> None:
+    evaluator = evaluator_cls(["a", "b"], ["c", "d"], labels)
+    np.testing.assert_array_equal(evaluator.labels, [1, 0])

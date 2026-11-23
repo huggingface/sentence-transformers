@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from torch import Tensor
 
@@ -75,6 +75,7 @@ class MultiVectorTripletEvaluator(TripletEvaluator):
         model: MultiVectorEncoder,
         sentences: SingleInput | Sequence[SingleInput] | np.ndarray,
         encode_fn_name: str | None = None,
+        role: Literal["anchor", "positive", "negative"] | None = None,
         **kwargs,
     ) -> list[Tensor]:
         kwargs.setdefault("truncate_dim", self.truncate_dim)
