@@ -462,7 +462,7 @@ def test_ward_pooling_controls_keep_reference_behavior(loader, monkeypatch, pool
         torch.testing.assert_close(gradient, expected_gradient)
     assert loader
     if "max_tokens" in pooling_options:
-        assert requested_counts == [[0, 0, 1, 3, 3]]
+        assert requested_counts == [[3, 3, 1, 0, 0]]
     for pooled, restored in zip(actual, deepcopy(pooler).pool(documents)):
         torch.testing.assert_close(pooled, restored)
 
