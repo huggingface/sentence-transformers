@@ -162,6 +162,20 @@ class TestHierarchicalTokenPooling:
         pooler.pool(documents)
         assert batch_sizes == [35]
 
+    @pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS is unavailable")
+    def test_mps_batches_stay_below_the_large_heap(self, monkeypatch):
+        pooler = HierarchicalTokenPooling(2, normalize_embeddings=False)
+        pool_batch = pooler._pool_batch
+        batch_sizes = []
+
+        def counted(embeddings, lengths):
+            batch_sizes.append(len(embeddings))
+            return pool_batch(embeddings, lengths)
+
+        monkeypatch.setattr(pooler, "_pool_batch", counted)
+        pooler.pool([torch.randn(20, 4096, device="mps") for _ in range(60)])
+        assert batch_sizes == [31, 29]
+
     @pytest.mark.parametrize(("mps_available", "expected"), [(True, [23, 690, 310]), (False, [23, 1000])])
     def test_long_documents_reduce_distance_batch_size(self, monkeypatch, mps_available, expected):
         monkeypatch.setattr(torch.backends.mps, "is_available", lambda: mps_available)

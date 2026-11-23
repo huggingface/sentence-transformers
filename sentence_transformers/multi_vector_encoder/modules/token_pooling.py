@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 # Targeting 128 MiB of temporary pooling memory.
 _POOLING_MEMORY_BUDGET = 128 * 1024 * 1024
+# MPS reserves a 1 GiB heap for buffers of 10 MiB or more, after rounding them up to 16 KiB.
+_MPS_MAX_BUFFER_ELEMENTS = (10 * 1024 * 1024 - 16 * 1024) // 4
 
 
 def _unbind_padded(embeddings: Tensor, attention_mask: Tensor | None, padding_side: str) -> list[Tensor]:
@@ -458,6 +460,8 @@ class HierarchicalTokenPooling(BaseTokenPooling):
                 if torch.backends.mps.is_available():
                     embedding_elements = max(1, max_tokens * embedding_dim)
                     max_elements = max_elements or batch_size * embedding_elements
+                    if documents[0].device.type == "mps":
+                        max_elements = min(max_elements, _MPS_MAX_BUFFER_ELEMENTS)
                     batch_size = max(1, min(batch_size, max_elements // embedding_elements))
 
                 batch = [documents[index] for index in length_sorted_idx[start : start + batch_size]]
