@@ -1156,8 +1156,8 @@ def test_trainer_call_model_init_multi_loss(
         }
     )
     loss = {
-        "stsb-1": CosineSimilarityLoss(model=model),
-        "stsb-2": MultipleNegativesRankingLoss(model=model),
+        "stsb-1": CosineSimilarityLoss,
+        "stsb-2": MultipleNegativesRankingLoss,
     }
 
     model_name = "sentence-transformers-testing/stsb-bert-tiny-safetensors"

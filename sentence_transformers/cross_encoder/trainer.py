@@ -201,7 +201,7 @@ class CrossEncoderTrainer(BaseTrainer):
         if isinstance(loss_fn, dict) and dataset_name:
             loss_fn = loss_fn[dataset_name]
 
-        if model == self.model_wrapped and hasattr(loss_fn, "model") and loss_fn.model != model:
+        if model == self.model_wrapped and loss_fn.model != model:
             loss_fn = self.override_model_in_loss(loss_fn, model)
         try:
             loss = loss_fn(features, labels, prompt=prompt, task=task)

@@ -149,12 +149,17 @@ class BatchHardTripletLoss(nn.Module):
                 trainer.train()
         """
         super().__init__()
-        self.sentence_embedder = model
+        self.model = model
         self.triplet_margin = margin
         self.distance_metric = distance_metric
 
+    @property
+    def sentence_embedder(self) -> SentenceTransformer:
+        """Backward-compatibility alias for :attr:`model`."""
+        return self.model
+
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor):
-        rep = self.sentence_embedder(sentence_features[0])["sentence_embedding"]
+        rep = self.model(sentence_features[0])["sentence_embedding"]
         return self.compute_loss_from_embeddings([rep], labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
