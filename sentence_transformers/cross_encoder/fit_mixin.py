@@ -319,8 +319,25 @@ class FitMixin:
             save_strategy="no",
         )
 
+        if loss_fct is None:
+            if self.config.num_labels == 1:
+                loss_fct = BinaryCrossEntropyLoss(self, activation_fn=activation_fct)
+            else:
+                loss_fct = CrossEntropyLoss(self, activation_fn=activation_fct)
+        else:
+            loss_fct = FitMixinLoss(self, loss_fct=loss_fct, activation_fn=activation_fct)
+
         # Prepare optimizer & scheduler
         param_optimizer = list(self.named_parameters())
+        if isinstance(loss_fct, nn.Module):
+            # Include any learnable parameters of the loss function itself (e.g. a learnable
+            # scale or temperature), taking care not to duplicate the model parameters, which
+            # the loss function wraps and would otherwise be added a second time.
+            seen_param_ids = {id(param) for _, param in param_optimizer}
+            for name, param in loss_fct.named_parameters():
+                if id(param) not in seen_param_ids:
+                    param_optimizer.append((f"loss.{name}", param))
+                    seen_param_ids.add(id(param))
 
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
@@ -338,14 +355,6 @@ class FitMixin:
             scheduler_obj = SentenceTransformer._get_scheduler(
                 optimizer, scheduler=scheduler, warmup_steps=warmup_steps, t_total=num_train_steps
             )
-
-        if loss_fct is None:
-            if self.config.num_labels == 1:
-                loss_fct = BinaryCrossEntropyLoss(self, activation_fn=activation_fct)
-            else:
-                loss_fct = CrossEntropyLoss(self, activation_fn=activation_fct)
-        else:
-            loss_fct = FitMixinLoss(self, loss_fct=loss_fct, activation_fn=activation_fct)
 
         # Create callbacks
         callbacks = []

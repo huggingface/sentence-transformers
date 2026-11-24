@@ -445,6 +445,53 @@ def test_fit_with_loss_fct(
     assert torch.isfinite(weights).all()
 
 
+def test_fit_with_learnable_loss_fct(
+    reranker_bert_tiny_model: CrossEncoder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CrossEncoder.fit() adds a learnable loss_fct's own parameters to the optimizer, without duplicating the model's."""
+    monkeypatch.chdir(tmp_path)
+    model = reranker_bert_tiny_model
+
+    class LearnableScaleLoss(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.scale = torch.nn.Parameter(torch.tensor(1.0))
+            self.bce = torch.nn.BCEWithLogitsLoss()
+
+        def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+            return self.scale * self.bce(logits, labels)
+
+    loss_fct = LearnableScaleLoss()
+    scale_before = loss_fct.scale.detach().clone()
+
+    captured_param_groups = []
+
+    class SpyAdamW(torch.optim.AdamW):
+        def __init__(self, params, **kwargs) -> None:
+            captured_param_groups.extend(params)
+            super().__init__(params, **kwargs)
+
+    examples = [InputExample(texts=[f"query {idx}", f"passage {idx}"], label=float(idx % 2)) for idx in range(8)]
+    model.fit(
+        train_dataloader=DataLoader(examples, batch_size=4),
+        loss_fct=loss_fct,
+        optimizer_class=SpyAdamW,
+        optimizer_params={"lr": 0.01},
+        epochs=1,
+        warmup_steps=0,
+        show_progress_bar=False,
+    )
+
+    optimizer_params = [param for group in captured_param_groups for param in group["params"]]
+    assert any(param is loss_fct.scale for param in optimizer_params)
+    # The loss wraps the model, so a naive collection would add the model parameters twice:
+    assert len(optimizer_params) == len({id(param) for param in optimizer_params})
+    assert not torch.equal(loss_fct.scale, scale_before)
+    assert torch.isfinite(loss_fct.scale).all()
+
+
 def test_fit_with_custom_batch_sampler(
     reranker_bert_tiny_model: CrossEncoder,
     tmp_path: Path,
