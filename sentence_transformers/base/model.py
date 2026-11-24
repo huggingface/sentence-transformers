@@ -1437,6 +1437,16 @@ This pull request has been automatically generated to add {self.__class__.__name
                             if new_name in init_kwargs:
                                 init_kwargs[old_name] = init_kwargs.pop(new_name)
 
+                        # Old custom modules take `cache_dir` as a separate argument and often forward it next to
+                        # the dicts, e.g. `AutoModel.from_pretrained(..., cache_dir=cache_dir, **model_args)`.
+                        # Pass it separately, as v5.3 and earlier did, so it doesn't reach such calls twice.
+                        # A `cache_dir` that the caller put in `model_kwargs` etc. stays where it was.
+                        if "cache_dir" in init_params:
+                            for old_name in new_to_old_name_mapping.values():
+                                if init_kwargs[old_name].get("cache_dir") == cache_folder:
+                                    init_kwargs[old_name].pop("cache_dir", None)
+                            init_kwargs["cache_dir"] = cache_folder
+
                     # Some new config value (defaults) might not be supported by old modules, so we can drop them
                     optional_params = {"modality_config", "module_output_name"}
                     for new_name in optional_params:

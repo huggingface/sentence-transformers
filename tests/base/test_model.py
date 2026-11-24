@@ -18,7 +18,7 @@ import pytest
 import torch
 from huggingface_hub import CommitInfo, HfApi, RepoUrl
 from torch import Tensor, nn
-from transformers import BertConfig, BertModel, BertTokenizer
+from transformers import AutoConfig, AutoModel, AutoTokenizer, BertConfig, BertModel, BertTokenizer
 
 from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
 from sentence_transformers.base.evaluation import BaseEvaluator
@@ -2297,3 +2297,49 @@ def test_legacy_model_module_paths(tmp_path: Path, external: bool) -> None:
     else:
         load()
         assert loaded_paths == [module_path]
+
+
+@pytest.mark.parametrize("with_cache_folder", [False, True])
+def test_legacy_transformer_module_receives_cache_dir_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_cache_folder: bool
+) -> None:
+    """Custom modules written for v5.3 and earlier (e.g. the one in jxm/cde-small-v2) forward `cache_dir` next
+    to their `*_args` dicts, so it must not also be inside those dicts."""
+
+    class LegacyTransformer(nn.Module):
+        def __init__(
+            self,
+            model_name_or_path: str,
+            model_args: dict[str, Any] | None = None,
+            tokenizer_args: dict[str, Any] | None = None,
+            config_args: dict[str, Any] | None = None,
+            cache_dir: str | None = None,
+            **kwargs,
+        ) -> None:
+            super().__init__()
+            self.cache_dir = cache_dir
+            self.config = AutoConfig.from_pretrained(model_name_or_path, cache_dir=cache_dir, **config_args)
+            self.auto_model = AutoModel.from_pretrained(
+                model_name_or_path, config=self.config, cache_dir=cache_dir, **model_args
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, cache_dir=cache_dir, **tokenizer_args)
+
+        @staticmethod
+        def load(input_path):
+            raise AssertionError("Transformer-like legacy modules are initialized directly")
+
+    monkeypatch.delenv("SENTENCE_TRANSFORMERS_HOME", raising=False)
+    model_path = _save_cpu_dtype_checkpoint(tmp_path / "model", dtype=torch.float32)
+    modules = [{"idx": 0, "name": "0", "path": "", "type": "test.LegacyTransformer"}]
+    (tmp_path / "model" / "modules.json").write_text(json.dumps(modules))
+    cache_folder = str(tmp_path / "cache") if with_cache_folder else None
+
+    model = SentenceTransformer._load_with_module_classes(
+        model_path,
+        module_classes={"test.LegacyTransformer": LegacyTransformer},
+        cache_folder=cache_folder,
+        local_files_only=True,
+        device="cpu",
+    )
+    assert isinstance(model[0], LegacyTransformer)
+    assert model[0].cache_dir == cache_folder
