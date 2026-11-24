@@ -1382,6 +1382,41 @@ def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) ->
         mine_hard_negatives(dataset=empty_dataset, model=model, verbose=False)
 
 
+@pytest.mark.parametrize("argument", ["anchor_column_name", "positive_column_name"])
+def test_unknown_column_name_raises(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, argument: str
+) -> None:
+    """A column name that is not in the dataset must be reported instead of mining on the first two columns.
+
+    Without the check, a misspelled name quietly falls back to the first or second column, so the returned
+    negatives belong to a different column than the one the caller asked for.
+    """
+    with pytest.raises(ValueError, match=f"{argument}='question' is not a column in the dataset"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            verbose=False,
+            **{argument: "question"},
+        )
+
+
+def test_invalid_sampling_strategy_raises(
+    dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer
+) -> None:
+    """An unknown sampling strategy must be named up front.
+
+    Without the check, neither branch runs and the candidates are never cut down to num_negatives, so the
+    call fails on a tensor shape only after all embeddings are computed.
+    """
+    with pytest.raises(ValueError, match="Invalid sampling_strategy: Top. Must be one of 'top' or 'random'."):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=static_retrieval_mrl_en_v1_model,
+            sampling_strategy="Top",
+            verbose=False,
+        )
+
+
 @pytest.mark.parametrize("sampling_strategy", ["top", "random"])
 def test_num_negatives_exceeds_range_window(
     dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, sampling_strategy: str

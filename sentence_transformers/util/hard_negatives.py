@@ -296,10 +296,19 @@ def mine_hard_negatives(
     # If a dataset has duplicate queries, assume that all duplicates are positive pairs.
     columns = dataset.column_names
 
-    if not anchor_column_name or anchor_column_name not in columns:
+    for argument, column_name in (
+        ("anchor_column_name", anchor_column_name),
+        ("positive_column_name", positive_column_name),
+    ):
+        if column_name and column_name not in columns:
+            raise ValueError(
+                f"{argument}={column_name!r} is not a column in the dataset, which has columns {columns}."
+            )
+
+    if not anchor_column_name:
         anchor_column_name = columns[0]
 
-    if not positive_column_name or positive_column_name not in columns:
+    if not positive_column_name:
         if len(columns) < 2:
             raise ValueError("Dataset must contain at least two columns to select the positive column automatically.")
         positive_column_name = columns[1]
@@ -345,6 +354,9 @@ def mine_hard_negatives(
         raise ValueError(
             f"Invalid output_format: {output_format}. Must be one of 'triplet', 'n-tuple', 'labeled-pair', or 'labeled-list'."
         )
+
+    if sampling_strategy not in ["top", "random"]:
+        raise ValueError(f"Invalid sampling_strategy: {sampling_strategy}. Must be one of 'top' or 'random'.")
 
     if margin is not None:
         absolute_margin = margin
