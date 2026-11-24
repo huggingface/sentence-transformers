@@ -1493,6 +1493,40 @@ def test_fit_with_float_evaluator_saves_best_model_and_calls_callback(
     assert (output_path / "modules.json").exists()
 
 
+@pytest.mark.parametrize(
+    "primary_metric,match",
+    [(None, "does not define a `primary_metric`"), ("absent", "Could not find the primary metric")],
+    ids=["no_primary_metric", "unknown_primary_metric"],
+)
+def test_fit_dict_evaluator_without_usable_primary_metric_raises(
+    primary_metric: str | None, match: str, stsb_bert_tiny_model, tmp_path, monkeypatch
+) -> None:
+    """A dict-returning evaluator must define a `primary_metric` that exists in its metrics. Otherwise
+    SentenceTransformer.fit() must raise a clear error instead of silently skipping `callback` and
+    best-model saving."""
+
+    class DictEvaluator(BaseEvaluator):
+        def __init__(self) -> None:
+            super().__init__()
+            self.primary_metric = primary_metric
+
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1) -> dict[str, float]:
+            return {"score": 0.5}
+
+    model = stsb_bert_tiny_model
+    monkeypatch.chdir(tmp_path)
+    examples = [InputExample(texts=[f"This is sentence {idx}", f"This is another sentence {idx}"]) for idx in range(8)]
+    with pytest.raises(ValueError, match=match):
+        model.fit(
+            train_objectives=[(DataLoader(examples, batch_size=4), MultipleNegativesRankingLoss(model))],
+            evaluator=DictEvaluator(),
+            epochs=1,
+            warmup_steps=0,
+            callback=lambda score, epoch, steps: None,
+            show_progress_bar=False,
+        )
+
+
 @pytest.mark.parametrize("dict_scores", [False, True], ids=["float", "dict"])
 def test_old_fit_with_evaluator_saves_best_model_and_calls_callback(
     stsb_bert_tiny_model, tmp_path, dict_scores: bool
