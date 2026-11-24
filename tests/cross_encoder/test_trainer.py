@@ -497,6 +497,43 @@ def test_old_fit_callback_receives_primary_score(
     assert (output_path / "modules.json").exists()
 
 
+@pytest.mark.parametrize(
+    "primary_metric,match",
+    [(None, "does not define a `primary_metric`"), ("absent", "Could not find the primary metric")],
+    ids=["no_primary_metric", "unknown_primary_metric"],
+)
+def test_fit_dict_evaluator_without_usable_primary_metric_raises(
+    primary_metric: str | None,
+    match: str,
+    reranker_bert_tiny_model: CrossEncoder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dict-returning evaluator must define a `primary_metric` that exists in its metrics. Otherwise
+    CrossEncoder.fit() must raise a clear error instead of silently skipping `callback` and best-model saving."""
+
+    class DictEvaluator(BaseEvaluator):
+        def __init__(self) -> None:
+            super().__init__()
+            self.primary_metric = primary_metric
+
+        def __call__(self, model, output_path=None, epoch=-1, steps=-1) -> dict[str, float]:
+            return {"score": 0.5}
+
+    monkeypatch.chdir(tmp_path)
+    model = reranker_bert_tiny_model
+    examples = [InputExample(texts=[f"query {idx}", f"passage {idx}"], label=float(idx % 2)) for idx in range(8)]
+    with pytest.raises(ValueError, match=match):
+        model.fit(
+            train_dataloader=DataLoader(examples, batch_size=4),
+            evaluator=DictEvaluator(),
+            epochs=1,
+            warmup_steps=0,
+            callback=lambda score, epoch, steps: None,
+            show_progress_bar=False,
+        )
+
+
 @pytest.mark.parametrize("model_fixture", ["reranker_bert_tiny_model", "multiclass_bert_tiny_model"])
 def test_fit_with_loss_fct(
     model_fixture: str, request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
