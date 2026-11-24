@@ -41,6 +41,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _select_score_from_metrics(metrics: dict[str, Any], evaluator: BaseEvaluator) -> Any:
+    """Select the score that an evaluator produced from a metrics dictionary.
+
+    Evaluators that return a float have it wrapped as ``{"evaluator": score}`` by ``EvaluatorCallback``.
+    Evaluators that return a metrics dictionary must define ``primary_metric`` so the score can be selected.
+    """
+    metric_key = getattr(evaluator, "primary_metric", None)
+    if metric_key is None:
+        if "eval_evaluator" in metrics:
+            return metrics["eval_evaluator"]
+        raise ValueError(
+            f"{evaluator.__class__.__name__} returns a metrics dictionary but does not define a `primary_metric`. "
+            "Set `primary_metric` to one of its metric keys or return a single float instead."
+        )
+    for key, value in metrics.items():
+        if key.endswith(metric_key):
+            return value
+    raise ValueError(
+        f"Could not find the primary metric {metric_key!r} of {evaluator.__class__.__name__} "
+        f"in the computed metrics: {list(metrics)}"
+    )
+
+
 class SaveModelCallback(TrainerCallback):
     """A Callback to save the model to the `output_dir`.
 
@@ -73,12 +96,10 @@ class SaveModelCallback(TrainerCallback):
         **kwargs,
     ) -> None:
         if self.evaluator is not None and self.save_best_model:
-            metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
-            for key, value in metrics.items():
-                if key.endswith(metric_key):
-                    if self.best_metric is None or self.is_better(value):
-                        self.best_metric = value
-                        model.save(self.output_dir)
+            score = _select_score_from_metrics(metrics, self.evaluator)
+            if self.best_metric is None or self.is_better(score):
+                self.best_metric = score
+                model.save(self.output_dir)
 
 
 class EvaluatorCallback(TrainerCallback):
@@ -141,10 +162,8 @@ class OriginalCallback(TrainerCallback):
         metrics: dict[str, Any],
         **kwargs,
     ) -> None:
-        metric_key = getattr(self.evaluator, "primary_metric", None) or "evaluator"
-        for key, value in metrics.items():
-            if key.endswith(metric_key):
-                return self.callback(value, state.epoch, state.global_step)
+        score = _select_score_from_metrics(metrics, self.evaluator)
+        return self.callback(score, state.epoch, state.global_step)
 
 
 class FitMixinLoss(nn.Module):
