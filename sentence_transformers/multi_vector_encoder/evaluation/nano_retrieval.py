@@ -29,6 +29,8 @@ class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
         splits (list[str], optional): Tasks to evaluate. Defaults to all qrels splits.
         name (str, optional): Collection name used as the prefix of metric names and output files.
             Defaults to the last part of ``dataset_id``, e.g. ``"NanoMTEB-Dutch"``.
+        corpus_column (str): Column of the corpus subset with the documents to encode, e.g. ``"image"`` for
+            visual document retrieval. Defaults to ``"text"``.
         corpus_chunk_size (int): Documents to encode and score per chunk. Larger values keep more document
             embeddings in memory but require fewer encoding passes. Defaults to 5000.
         chunk_elements (int, optional): Element budget for the 4D

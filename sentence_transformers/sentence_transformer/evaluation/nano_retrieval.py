@@ -84,6 +84,8 @@ class NanoRetrievalEvaluator(BaseEvaluator):
     A Nano collection is a single Hugging Face dataset with "corpus", "queries", and "qrels" subsets. Every split
     is one retrieval task, and all three subsets share the same split names. The "corpus" and "queries" subsets
     need ``_id`` and ``text`` columns, and the "qrels" subset needs ``query-id`` and ``corpus-id`` columns.
+    The documents can also be read from another column of the "corpus" subset with ``corpus_column``, e.g. an
+    ``image`` column for visual document retrieval.
     This evaluator runs an :class:`~sentence_transformers.sentence_transformer.evaluation.InformationRetrievalEvaluator`
     on each split and reports the same metrics (e.g., MRR, nDCG, Recall@k) for each split individually, as well as
     aggregated across all splits.
@@ -95,6 +97,8 @@ class NanoRetrievalEvaluator(BaseEvaluator):
         splits (List[str], optional): The splits to evaluate on. If not specified, all splits of the "qrels" subset are used.
         name (str, optional): The name of the collection, used as the prefix of the metric names and of the CSV file.
             Defaults to the last part of ``dataset_id``, e.g. "NanoBEIR-en".
+        corpus_column (str): The column of the "corpus" subset with the documents to encode. Any input the model
+            accepts works, e.g. ``"image"`` for a column of images with a multimodal model. Defaults to "text".
         mrr_at_k (List[int]): A list of integers representing the values of k for MRR calculation. Defaults to [10].
         ndcg_at_k (List[int]): A list of integers representing the values of k for NDCG calculation. Defaults to [10].
         accuracy_at_k (List[int]): A list of integers representing the values of k for accuracy calculation. Defaults to [1, 3, 5, 10].
@@ -166,6 +170,7 @@ class NanoRetrievalEvaluator(BaseEvaluator):
         dataset_id: NanoDatasetId | str,
         splits: list[str] | None = None,
         name: str | None = None,
+        corpus_column: str = "text",
         mrr_at_k: list[int] = [10],
         ndcg_at_k: list[int] = [10],
         accuracy_at_k: list[int] = [1, 3, 5, 10],
@@ -187,6 +192,7 @@ class NanoRetrievalEvaluator(BaseEvaluator):
         self.dataset_id = dataset_id
         self.splits = self._get_dataset_splits() if splits is None else splits
         self.dataset_name = name or dataset_id.rstrip("/").split("/")[-1]
+        self.corpus_column = corpus_column
         self.aggregate_fn = aggregate_fn
         self.aggregate_key = aggregate_key
         self.query_prompts = query_prompts
@@ -367,11 +373,17 @@ class NanoRetrievalEvaluator(BaseEvaluator):
     def _load_dataset(self, split: str, **ir_evaluator_kwargs) -> InformationRetrievalEvaluator:
         split_name = self._get_split_name(split)
 
-        corpus = self._load_dataset_subset_split("corpus", split=split_name, required_columns=["_id", "text"])
+        corpus = self._load_dataset_subset_split(
+            "corpus", split=split_name, required_columns=["_id", self.corpus_column]
+        )
         queries = self._load_dataset_subset_split("queries", split=split_name, required_columns=["_id", "text"])
         qrels = self._load_dataset_subset_split("qrels", split=split_name, required_columns=["query-id", "corpus-id"])
 
-        corpus_dict = {sample["_id"]: sample["text"] for sample in corpus if len(sample["text"]) > 0}
+        corpus_dict = {
+            sample["_id"]: sample[self.corpus_column]
+            for sample in corpus
+            if sample[self.corpus_column] is not None and sample[self.corpus_column] != ""
+        }
         queries_dict = {sample["_id"]: sample["text"] for sample in queries if len(sample["text"]) > 0}
 
         qrels_dict = {}
@@ -449,6 +461,8 @@ class NanoRetrievalEvaluator(BaseEvaluator):
 
     def get_config_dict(self) -> dict[str, Any]:
         config_dict = {"dataset_id": self.dataset_id, "splits": self.splits}
+        if self.corpus_column != "text":
+            config_dict["corpus_column"] = self.corpus_column
         config_dict_candidate_keys = ["truncate_dim", "query_prompts", "corpus_prompts"]
         for key in config_dict_candidate_keys:
             if getattr(self, key) is not None:

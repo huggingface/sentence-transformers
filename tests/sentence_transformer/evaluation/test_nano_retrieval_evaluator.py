@@ -140,6 +140,35 @@ def test_nano_retrieval_evaluator_loading_errors(evaluator_class, nano_datasets)
         evaluator_class(nano_datasets.dataset_id, splits=["first_task"])
 
 
+@pytest.mark.parametrize("evaluator_class", [NanoRetrievalEvaluator, MultiVectorNanoRetrievalEvaluator])
+def test_nano_retrieval_evaluator_corpus_column(evaluator_class, nano_datasets):
+    from datasets import Dataset
+    from PIL import Image
+
+    images = [Image.new("RGB", (8, 8), color) for color in ["red", "blue"]]
+    nano_datasets.subsets["corpus"] = Dataset.from_list(
+        [
+            {"_id": "d0", "text": "Paris is the capital of France.", "image": images[0]},
+            {"_id": "d1", "text": "", "image": images[1]},
+            {"_id": "d2", "text": "A page without an image.", "image": None},
+        ]
+    )
+
+    evaluator = evaluator_class(nano_datasets.dataset_id, splits=["first_task"], corpus_column="image")
+    corpus = evaluator.evaluators[0].corpus
+    assert evaluator.evaluators[0].corpus_ids == ["d0", "d1"]
+    assert all(isinstance(document, Image.Image) for document in corpus)
+    assert evaluator.get_config_dict()["corpus_column"] == "image"
+
+    # The default still reads the "text" column, skipping empty documents
+    evaluator = evaluator_class(nano_datasets.dataset_id, splits=["first_task"])
+    assert evaluator.evaluators[0].corpus_ids == ["d0", "d2"]
+    assert "corpus_column" not in evaluator.get_config_dict()
+
+    with pytest.raises(ValueError, match="missing required columns.*markdown"):
+        evaluator_class(nano_datasets.dataset_id, splits=["first_task"], corpus_column="markdown")
+
+
 def test_nanobeir_evaluator_is_nano_retrieval_evaluator() -> None:
     evaluator = LocalNanoBEIREvaluator(dataset_names=["msmarco", "NQ"], query_prompts="query: ")
     assert isinstance(evaluator, NanoRetrievalEvaluator)
