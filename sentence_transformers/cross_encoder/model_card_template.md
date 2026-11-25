@@ -179,13 +179,20 @@ You can finetune this model on your own dataset.
 Carbon emissions were measured using [CodeCarbon](https://github.com/mlco2/codecarbon).
 - **Energy Consumed**: {{ "%.3f"|format(co2_eq_emissions["energy_consumed"]) }} kWh
 - **Carbon Emitted**: {{ "%.3f"|format(co2_eq_emissions["emissions"] / 1000) }} kg of CO2
+{% endif %}
 
+{%- if co2_eq_emissions or hf_job_flavor %}
 ### Training Hardware
+{% if hf_job_flavor -%}
+- **Hugging Face Jobs**: `{{ hf_job_flavor }}`
+{% endif -%}
+{% if co2_eq_emissions -%}
 - **On Cloud**: {{ "Yes" if co2_eq_emissions["on_cloud"] else "No" }}
 - **GPU Model**: {{ co2_eq_emissions["hardware_used"] or "No GPU used" }}
 - **CPU Model**: {{ co2_eq_emissions["cpu_model"] }}
 - **RAM Size**: {{ "%.2f"|format(co2_eq_emissions["ram_total_size"]) }} GB
 {% endif %}
+{%- endif %}
 {%- if training_time is not none %}
 ### Training Time
 - **Training**: {{ training_time }}
