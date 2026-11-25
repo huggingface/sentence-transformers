@@ -12,6 +12,7 @@ from unittest.mock import PropertyMock, patch
 import numpy as np
 import pytest
 import torch
+from huggingface_hub import ModelCard, ModelCardData
 
 from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
 from sentence_transformers.base.model_card import BaseModelCardData, generate_model_card
@@ -60,6 +61,87 @@ def _make_model_card_data(cls=BaseModelCardData, **kwargs) -> BaseModelCardData:
     """Create a BaseModelCardData instance with common defaults for testing."""
     data = cls(**kwargs)
     return data
+
+
+@pytest.mark.parametrize(
+    ("job_id", "job_flavor"),
+    [
+        (None, None),
+        (None, "a10g-small"),
+        ("", "a10g-small"),
+        ("test-job", None),
+        ("test-job", ""),
+        ("test-job", "a10g-small"),
+    ],
+)
+def test_hf_jobs_metadata(word_embeddings_model, tmp_path, monkeypatch, job_id, job_flavor) -> None:
+    for name, value in {"HF_JOB_ID": job_id, "HF_JOB_FLAVOR": job_flavor}.items():
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+
+    model = word_embeddings_model
+    assert "hf_jobs" not in model.model_card_data.tags
+    args = SentenceTransformerTrainingArguments(output_dir=str(tmp_path), report_to=[])
+    SentenceTransformerTrainer(model=model, args=args)
+
+    monkeypatch.delenv("HF_JOB_ID", raising=False)
+    monkeypatch.delenv("HF_JOB_FLAVOR", raising=False)
+    card = ModelCard(generate_model_card(model))
+    assert ("hf_jobs" in card.data.tags) == bool(job_id)
+    assert ("### Training Hardware" in card.text) == bool(job_id and job_flavor)
+    assert "### Environmental Impact" not in card.text
+    if job_id and job_flavor:
+        assert f"- **Hugging Face Jobs**: `{job_flavor}`" in card.text
+    else:
+        assert "Hugging Face Jobs" not in card.text
+    assert "test-job" not in card.content
+
+
+@pytest.mark.parametrize(
+    "model_type", ["base", "sentence_transformer", "cross_encoder", "sparse_encoder", "multi_vector_encoder"]
+)
+@pytest.mark.parametrize("job_flavor", [None, "a10g-small"])
+@pytest.mark.parametrize("with_codecarbon", [False, True])
+def test_hf_jobs_hardware_templates(model_type, job_flavor, with_codecarbon) -> None:
+    template_path = BaseModelCardData().template_path.parent.parent / model_type / "model_card_template.md"
+    emissions = {
+        "energy_consumed": 1.5,
+        "emissions": 250,
+        "on_cloud": True,
+        "hardware_used": "NVIDIA A10G",
+        "cpu_model": "Test CPU",
+        "ram_total_size": 32,
+    }
+    card = ModelCard.from_template(
+        ModelCardData(),
+        template_path=template_path,
+        hf_job_flavor=job_flavor,
+        co2_eq_emissions=emissions if with_codecarbon else None,
+        train_datasets=[],
+        eval_datasets=[],
+        version={},
+        citations={},
+        model_num_labels=1,
+        training_time=None,
+    )
+    assert card.text.count("### Training Hardware") == int(bool(job_flavor or with_codecarbon))
+    assert ("Hugging Face Jobs" in card.text) == bool(job_flavor)
+    assert ("### Environmental Impact" in card.text) == with_codecarbon
+    if job_flavor:
+        assert f"- **Hugging Face Jobs**: `{job_flavor}`\n" in card.text
+    if with_codecarbon:
+        assert "- **Energy Consumed**: 1.500 kWh\n" in card.text
+        assert "- **Carbon Emitted**: 0.250 kg of CO2\n\n### Training Hardware" in card.text
+        assert "- **On Cloud**: Yes\n" in card.text
+        assert "- **GPU Model**: NVIDIA A10G\n" in card.text
+        assert "- **CPU Model**: Test CPU\n" in card.text
+        assert "- **RAM Size**: 32.00 GB\n" in card.text
+    else:
+        assert "- **GPU Model**" not in card.text
+        assert "- **CPU Model**" not in card.text
+        assert "- **RAM Size**" not in card.text
 
 
 def _make_pil_image(width: int = 64, height: int = 64) -> PILModule.Image:

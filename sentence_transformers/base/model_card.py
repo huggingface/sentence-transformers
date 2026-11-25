@@ -112,6 +112,9 @@ class BaseModelCardCallback(TrainerCallback):
         **kwargs,
     ) -> None:
         model.model_card_data.add_tags("generated_from_trainer")
+        if os.getenv("HF_JOB_ID"):
+            model.model_card_data.add_tags("hf_jobs")
+            model.model_card_data.hf_job_flavor = os.getenv("HF_JOB_FLAVOR")
 
         # Try to set the code carbon callback if it exists
         callbacks = [
@@ -395,6 +398,7 @@ class BaseModelCardData(CardData):
     usage_examples_display: list | None = field(default=None, init=False, repr=False)
     label_example_list: list[dict[str, str]] = field(default_factory=list, init=False)
     code_carbon_callback: CodeCarbonCallback | None = field(default=None, init=False)
+    hf_job_flavor: str | None = field(default=None, init=False)
     _training_start_time: float | None = field(default=None, init=False)
     evaluation_duration: float = field(default=0.0, init=False)
     citations: dict[str, str] = field(default_factory=dict, init=False)
