@@ -1382,6 +1382,27 @@ def test_empty_dataset(static_retrieval_mrl_en_v1_model: SentenceTransformer) ->
         mine_hard_negatives(dataset=empty_dataset, model=model, verbose=False)
 
 
+@pytest.mark.parametrize("argument", ["anchor_column_name", "positive_column_name"])
+def test_unknown_column_name_raises(dataset: Dataset, argument: str) -> None:
+    with pytest.raises(ValueError, match=f"{argument}='question' is not a column in the dataset"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=SimpleNamespace(),
+            verbose=False,
+            **{argument: "question"},
+        )
+
+
+def test_invalid_sampling_strategy_raises(dataset: Dataset) -> None:
+    with pytest.raises(ValueError, match="Invalid sampling_strategy: Top"):
+        mine_hard_negatives(
+            dataset=dataset,
+            model=SimpleNamespace(),
+            sampling_strategy="Top",
+            verbose=False,
+        )
+
+
 @pytest.mark.parametrize("sampling_strategy", ["top", "random"])
 def test_num_negatives_exceeds_range_window(
     dataset: Dataset, static_retrieval_mrl_en_v1_model: SentenceTransformer, sampling_strategy: str
