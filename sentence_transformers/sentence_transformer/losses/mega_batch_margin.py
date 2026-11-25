@@ -88,7 +88,8 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainingArguments, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainingArguments, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import MegaBatchMarginLoss
                 from datasets import Dataset
 
                 train_batch_size = 250
@@ -99,7 +100,7 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
                     "anchor": [f"This is sentence number {i}" for i in range(500)],
                     "positive": [f"This is sentence number {i}" for i in range(1, 501)],
                 })
-                loss = losses.MegaBatchMarginLoss(model=model, mini_batch_size=train_mini_batch_size)
+                loss = MegaBatchMarginLoss(model=model, mini_batch_size=train_mini_batch_size)
 
                 args = SentenceTransformerTrainingArguments(
                     output_dir="output",

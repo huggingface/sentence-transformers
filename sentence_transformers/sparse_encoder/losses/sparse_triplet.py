@@ -48,7 +48,8 @@ class SparseTripletLoss(TripletLoss):
 
                 from datasets import Dataset
 
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseTripletLoss, SpladeLoss
 
                 model = SparseEncoder("distilbert/distilbert-base-uncased")
                 train_dataset = Dataset.from_dict(
@@ -58,8 +59,8 @@ class SparseTripletLoss(TripletLoss):
                         "negative": ["It's quite rainy, sadly.", "She walked to the store."],
                     }
                 )
-                loss = losses.SpladeLoss(
-                    model=model, loss=losses.SparseTripletLoss(model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
+                loss = SpladeLoss(
+                    model=model, loss=SparseTripletLoss(model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
                 )
 
                 trainer = SparseEncoderTrainer(model=model, train_dataset=train_dataset, loss=loss)

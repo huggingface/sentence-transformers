@@ -172,7 +172,8 @@ class CSRLoss(nn.Module):
             ::
 
                 from datasets import Dataset
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import CSRLoss
 
                 model = SparseEncoder("sentence-transformers/all-MiniLM-L6-v2")
                 train_dataset = Dataset.from_dict(
@@ -182,7 +183,7 @@ class CSRLoss(nn.Module):
                         "negative": ["It's quite rainy, sadly.", "She walked to the store."],
                     }
                 )
-                loss = losses.CSRLoss(model, beta=0.1, gamma=1.0)
+                loss = CSRLoss(model, beta=0.1, gamma=1.0)
 
                 trainer = SparseEncoderTrainer(model=model, train_dataset=train_dataset, loss=loss)
                 trainer.train()

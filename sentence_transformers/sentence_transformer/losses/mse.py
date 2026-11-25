@@ -68,7 +68,8 @@ class MSELoss(EmbedDistillLoss):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import MSELoss
                 from datasets import Dataset
 
                 student_model = SentenceTransformer("microsoft/mpnet-base")
@@ -84,7 +85,7 @@ class MSELoss(EmbedDistillLoss):
                     }
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.MSELoss(student_model)
+                loss = MSELoss(student_model)
 
                 trainer = SentenceTransformerTrainer(
                     model=student_model,

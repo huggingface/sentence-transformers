@@ -93,14 +93,14 @@ def test_import_module_class_sentence_transformers_namespace_skips_dynamic_loadi
     """
     with patch("transformers.dynamic_module_utils.get_class_from_dynamic_module") as mock_get:
         cls = import_module_class(
-            "sentence_transformers.models.Pooling",
+            "sentence_transformers.sentence_transformer.modules.Pooling",
             model_name_or_path="some/repo",
             trust_remote_code=True,
             token="hf_my_secret_token",
         )
 
     mock_get.assert_not_called()
-    from sentence_transformers.models import Pooling
+    from sentence_transformers.sentence_transformer.modules import Pooling
 
     assert cls is Pooling
 

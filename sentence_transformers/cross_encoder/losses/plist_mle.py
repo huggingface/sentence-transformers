@@ -119,7 +119,8 @@ class PListMLELoss(nn.Module):
 
                 import torch
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import PListMLELambdaWeight, PListMLELoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -133,16 +134,16 @@ class PListMLELoss(nn.Module):
                 })
 
                 # Either: Position-Aware ListMLE with default weighting
-                lambda_weight = losses.PListMLELambdaWeight()
-                loss = losses.PListMLELoss(model, lambda_weight=lambda_weight)
+                lambda_weight = PListMLELambdaWeight()
+                loss = PListMLELoss(model, lambda_weight=lambda_weight)
 
                 # or: Position-Aware ListMLE with custom weighting function
                 def custom_discount(mask):
                     ranks = mask.cumsum(dim=-1)
                     return (1.0 / torch.log1p(ranks)).masked_fill(~mask, 0)
 
-                lambda_weight = losses.PListMLELambdaWeight(rank_discount_fn=custom_discount)
-                loss = losses.PListMLELoss(model, lambda_weight=lambda_weight)
+                lambda_weight = PListMLELambdaWeight(rank_discount_fn=custom_discount)
+                loss = PListMLELoss(model, lambda_weight=lambda_weight)
 
                 trainer = CrossEncoderTrainer(
                     model=model,

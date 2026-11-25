@@ -52,7 +52,8 @@ class SparseCoSENTLoss(CoSENTLoss):
 
                 from datasets import Dataset
 
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseCoSENTLoss, SpladeLoss
 
                 model = SparseEncoder("distilbert/distilbert-base-uncased")
                 train_dataset = Dataset.from_dict(
@@ -62,8 +63,8 @@ class SparseCoSENTLoss(CoSENTLoss):
                         "score": [1.0, 0.3],
                     }
                 )
-                loss = losses.SpladeLoss(
-                    model=model, loss=losses.SparseCoSENTLoss(model), document_regularizer_weight=5e-5, use_document_regularizer_only=True
+                loss = SpladeLoss(
+                    model=model, loss=SparseCoSENTLoss(model), document_regularizer_weight=5e-5, use_document_regularizer_only=True
                 )
 
                 trainer = SparseEncoderTrainer(model=model, train_dataset=train_dataset, loss=loss)

@@ -65,7 +65,8 @@ class ListNetLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import ListNetLoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -77,7 +78,7 @@ class ListNetLoss(nn.Module):
                     ],
                     "labels": [[1, 0], [1, 1, 0]],
                 })
-                loss = losses.ListNetLoss(model)
+                loss = ListNetLoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,

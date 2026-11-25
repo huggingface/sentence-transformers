@@ -139,13 +139,14 @@ If you're using a GPU, then you can use the following options to speed up your i
 
    .. code-block:: python
 
-      from sentence_transformers import SentenceTransformer, losses
+      from sentence_transformers import SentenceTransformer
+      from sentence_transformers.sentence_transformer.losses import CachedMultipleNegativesRankingLoss
 
       model = SentenceTransformer(
           "answerdotai/ModernBERT-base",
           model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": "bfloat16"},
       )
-      loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=32768)
+      loss = CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=32768)
 
    Prefer the smallest budget that saturates your GPU: throughput plateaus beyond that point, and budgets that
    push peak memory close to the card's limit gain little and can silently slow training down when the driver

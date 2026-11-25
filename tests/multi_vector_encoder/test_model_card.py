@@ -8,7 +8,7 @@ from PIL import Image
 
 from sentence_transformers import MultiVectorEncoder, MultiVectorEncoderTrainer, MultiVectorEncoderTrainingArguments
 from sentence_transformers.base.model_card import generate_model_card
-from sentence_transformers.multi_vector_encoder import losses as mve_losses
+from sentence_transformers.multi_vector_encoder.losses import MultiVectorMultipleNegativesRankingLoss
 from sentence_transformers.multi_vector_encoder.model_card import MultiVectorEncoderModelCardData
 from sentence_transformers.util import is_datasets_available, is_training_available
 
@@ -241,7 +241,7 @@ def test_model_card_base(
     if num_datasets:
         train_dataset = DatasetDict({f"train_{i}": train_dataset for i in range(num_datasets)})
 
-    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=model)
+    loss = MultiVectorMultipleNegativesRankingLoss(model=model)
     args = MultiVectorEncoderTrainingArguments(output_dir=str(tmp_path))
 
     # Constructing the trainer populates model.model_card_data with dataset / loss info.

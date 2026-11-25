@@ -113,7 +113,8 @@ class CachedGISTEmbedLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import CachedGISTEmbedLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -122,7 +123,7 @@ class CachedGISTEmbedLoss(nn.Module):
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.CachedGISTEmbedLoss(
+                loss = CachedGISTEmbedLoss(
                     model,
                     guide,
                     mini_batch_size=64,

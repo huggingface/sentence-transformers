@@ -70,7 +70,8 @@ class RankNetLoss(LambdaLoss):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import RankNetLoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -82,7 +83,7 @@ class RankNetLoss(LambdaLoss):
                     ],
                     "labels": [[1, 0], [1, 1, 0]],
                 })
-                loss = losses.RankNetLoss(model)
+                loss = RankNetLoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,

@@ -33,7 +33,8 @@ class SparseMSELoss(MSELoss):
             ::
 
                 from datasets import Dataset
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseMSELoss
 
                 student_model = SparseEncoder("prithivida/Splade_PP_en_v1")
                 teacher_model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
@@ -50,7 +51,7 @@ class SparseMSELoss(MSELoss):
 
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.SparseMSELoss(student_model)
+                loss = SparseMSELoss(student_model)
 
                 trainer = SparseEncoderTrainer(model=student_model, train_dataset=train_dataset, loss=loss)
                 trainer.train()

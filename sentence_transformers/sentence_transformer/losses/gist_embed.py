@@ -83,7 +83,8 @@ class GISTEmbedLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -92,7 +93,7 @@ class GISTEmbedLoss(nn.Module):
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.GISTEmbedLoss(model, guide)
+                loss = GISTEmbedLoss(model, guide)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

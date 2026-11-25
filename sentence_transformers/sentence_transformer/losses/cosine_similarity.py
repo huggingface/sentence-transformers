@@ -53,7 +53,8 @@ class CosineSimilarityLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -62,7 +63,7 @@ class CosineSimilarityLoss(nn.Module):
                     "sentence2": ["It's so sunny.", "She walked to the store."],
                     "score": [1.0, 0.3],
                 })
-                loss = losses.CosineSimilarityLoss(model)
+                loss = CosineSimilarityLoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

@@ -164,7 +164,11 @@ class AdaptiveLayerLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import (
+                    AdaptiveLayerLoss,
+                    MultipleNegativesRankingLoss,
+                )
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -172,8 +176,8 @@ class AdaptiveLayerLoss(nn.Module):
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.MultipleNegativesRankingLoss(model=model)
-                loss = losses.AdaptiveLayerLoss(model, loss)
+                loss = MultipleNegativesRankingLoss(model=model)
+                loss = AdaptiveLayerLoss(model, loss)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

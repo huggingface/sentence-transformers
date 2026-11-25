@@ -68,7 +68,8 @@ class SoftmaxLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import SoftmaxLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -87,7 +88,7 @@ class SoftmaxLoss(nn.Module):
                     ],
                     "label": [1, 2, 0, 0],
                 })
-                loss = losses.SoftmaxLoss(model, model.get_embedding_dimension(), num_labels=3)
+                loss = SoftmaxLoss(model, model.get_embedding_dimension(), num_labels=3)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

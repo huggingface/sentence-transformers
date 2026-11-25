@@ -77,7 +77,8 @@ class EmbedDistillLoss(nn.Module):
         Example:
             Pre-compute teacher embeddings for a single text column, then train::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import EmbedDistillLoss
                 from datasets import Dataset
 
                 student_model = SentenceTransformer("microsoft/mpnet-base")
@@ -92,7 +93,7 @@ class EmbedDistillLoss(nn.Module):
 
                 train_dataset = train_dataset.map(add_teacher_embeddings, batched=True)
 
-                loss = losses.EmbedDistillLoss(student_model, distance_metric="cosine")
+                loss = EmbedDistillLoss(student_model, distance_metric="cosine")
 
                 trainer = SentenceTransformerTrainer(
                     model=student_model,
@@ -104,7 +105,8 @@ class EmbedDistillLoss(nn.Module):
             Per-column teacher embeddings (e.g. query + positive)::
 
                 import numpy as np
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import EmbedDistillLoss
                 from datasets import Dataset
 
                 student_model = SentenceTransformer("microsoft/mpnet-base")
@@ -122,11 +124,11 @@ class EmbedDistillLoss(nn.Module):
 
                 train_dataset = train_dataset.map(add_teacher_embeddings, batched=True)
 
-                loss = losses.EmbedDistillLoss(student_model, distance_metric="cosine")
+                loss = EmbedDistillLoss(student_model, distance_metric="cosine")
 
             Cross-dimensional distillation (student 384, teacher 1024)::
 
-                loss = losses.EmbedDistillLoss(
+                loss = EmbedDistillLoss(
                     student_model,            # outputs 384-dim
                     distance_metric="cosine",
                     projection_dim=1024,      # teacher dim
@@ -135,7 +137,7 @@ class EmbedDistillLoss(nn.Module):
             Two-stage training (reuse the stage-1 projection in stage 2)::
 
                 # Stage 1
-                loss_stage1 = losses.EmbedDistillLoss(
+                loss_stage1 = EmbedDistillLoss(
                     student_model,
                     distance_metric="cosine",
                     projection_dim=1024,
@@ -144,7 +146,7 @@ class EmbedDistillLoss(nn.Module):
                 loss_stage1.save_projection("output/projection.safetensors")
 
                 # Stage 2
-                loss_stage2 = losses.EmbedDistillLoss(
+                loss_stage2 = EmbedDistillLoss(
                     student_model,
                     distance_metric="cosine",
                     projection_dim=1024,

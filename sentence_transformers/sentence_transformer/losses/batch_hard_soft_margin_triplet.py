@@ -62,7 +62,8 @@ class BatchHardSoftMarginTripletLoss(BatchHardTripletLoss):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import BatchHardSoftMarginTripletLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -77,7 +78,7 @@ class BatchHardSoftMarginTripletLoss(BatchHardTripletLoss):
                     ],
                     "label": [0, 1, 0, 0, 2],
                 })
-                loss = losses.BatchHardSoftMarginTripletLoss(model)
+                loss = BatchHardSoftMarginTripletLoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
