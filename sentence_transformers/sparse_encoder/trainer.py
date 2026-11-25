@@ -169,6 +169,36 @@ class SparseEncoderTrainer(BaseTrainer):
             document_regularizer_weight=3e-5,  # Weight for document loss
         )
 
+    def call_model_init(self, trial=None) -> SparseEncoder:
+        """Initialize the model and replace schedulers for losses recreated from factories.
+
+        ``prepare_loss`` registers new SPLADE schedulers. Remove the old ones so they
+        do not retain previous losses and models, then restore the scheduler type and
+        warmup ratio for each dataset.
+        """
+        if not hasattr(self, "loss") or isinstance(self.loss_init, nn.Module):
+            return super().call_model_init(trial)
+
+        losses = self.loss if isinstance(self.loss, dict) else {None: self.loss}
+        scheduler_settings = {
+            name: (callback.scheduler_type, callback.warmup_ratio)
+            for name, loss in losses.items()
+            for callback in self.callback_handler.callbacks
+            if isinstance(callback, SpladeRegularizerWeightSchedulerCallback) and callback.loss is loss
+        }
+        for callback in self.callback_handler.callbacks.copy():
+            if isinstance(callback, SpladeRegularizerWeightSchedulerCallback):
+                self.remove_callback(callback)
+
+        model = super().call_model_init(trial)
+        losses = self.loss if isinstance(self.loss, dict) else {None: self.loss}
+        for callback in self.callback_handler.callbacks:
+            if isinstance(callback, SpladeRegularizerWeightSchedulerCallback):
+                for name, loss in losses.items():
+                    if callback.loss is loss and name in scheduler_settings:
+                        callback.scheduler_type, callback.warmup_ratio = scheduler_settings[name]
+        return model
+
     def prepare_loss(
         self,
         loss: Callable[[SparseEncoder], torch.nn.Module] | torch.nn.Module,

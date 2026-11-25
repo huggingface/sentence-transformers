@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import os
 import re
 import runpy
 import tempfile
 from contextlib import nullcontext
 from copy import deepcopy
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 from packaging.version import parse as parse_version
 from tokenizers.processors import TemplateProcessing
 from torch.utils.data import BatchSampler, ConcatDataset, DataLoader, SequentialSampler
@@ -28,6 +32,10 @@ from sentence_transformers.base.sampler import (
 )
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
 from sentence_transformers.sentence_transformer.losses import (
+    BatchAllTripletLoss,
+    BatchHardSoftMarginTripletLoss,
+    BatchHardTripletLoss,
+    BatchSemiHardTripletLoss,
     CachedMultipleNegativesRankingLoss,
     CosineSimilarityLoss,
     MultipleNegativesRankingLoss,
@@ -44,6 +52,70 @@ if not is_training_available():
     pytest.skip(
         reason='Sentence Transformers was not installed with the `["train"]` extra.',
         allow_module_level=True,
+    )
+
+
+def _train_triplet_ddp(rank, init_method, output_dir, loss_class, model):
+    from transformers import TrainerCallback
+
+    torch.set_num_threads(1)
+    os.environ.update(RANK=str(rank), WORLD_SIZE="2", LOCAL_RANK=str(rank), LOCAL_WORLD_SIZE="2")
+    dist.init_process_group("gloo", rank=rank, world_size=2, init_method=init_method, timeout=timedelta(seconds=30))
+    try:
+        model = deepcopy(model)
+        loss = loss_class(model)
+        assert loss.model is loss.sentence_embedder is model
+        initial_weights = next(model.parameters()).detach().clone()
+
+        class CheckSynchronization(TrainerCallback):
+            def on_step_end(self, args, state, control, **kwargs):
+                assert loss.model is loss.sentence_embedder is trainer.model_wrapped
+                weights = torch.cat([parameter.detach().flatten() for parameter in model.parameters()])
+                gathered = [torch.empty_like(weights) for _ in range(2)]
+                dist.all_gather(gathered, weights)
+                torch.testing.assert_close(gathered[0], gathered[1], rtol=0, atol=0)
+
+        trainer = SentenceTransformerTrainer(
+            model=model,
+            loss=loss,
+            train_dataset=Dataset.from_dict(
+                {
+                    "sentence": [f"sentence {index} about topic {index % 4}" for index in range(64)],
+                    "label": [index % 4 for index in range(64)],
+                }
+            ),
+            args=SentenceTransformerTrainingArguments(
+                output_dir=output_dir,
+                use_cpu=True,
+                max_steps=3,
+                per_device_train_batch_size=8,
+                learning_rate=1e-3,
+                save_strategy="no",
+                logging_strategy="no",
+                report_to=[],
+                disable_tqdm=True,
+            ),
+            callbacks=[CheckSynchronization()],
+        )
+        trainer.train()
+        assert not torch.equal(initial_weights, next(model.parameters()))
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.skipif(not dist.is_available() or not dist.is_gloo_available(), reason="Gloo is unavailable")
+@pytest.mark.parametrize(
+    "loss_class",
+    [BatchAllTripletLoss, BatchHardTripletLoss, BatchHardSoftMarginTripletLoss, BatchSemiHardTripletLoss],
+)
+def test_batch_triplet_loss_synchronizes_model(stsb_bert_tiny_model, tmp_path, loss_class):
+    pytest.importorskip("accelerate")
+    pytest.importorskip("datasets")
+    mp.spawn(
+        _train_triplet_ddp,
+        args=((tmp_path / "store").as_uri(), str(tmp_path), loss_class, stsb_bert_tiny_model.to("cpu")),
+        nprocs=2,
+        join=True,
     )
 
 

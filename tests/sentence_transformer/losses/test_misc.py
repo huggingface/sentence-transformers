@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from unittest.mock import patch
 
 import pytest
 import torch
@@ -84,22 +83,3 @@ def test_single_label_does_not_broadcast_over_batch(loss_class, num_columns, lab
     loss_fn = loss_class(torch.nn.Identity())
     with pytest.raises(ValueError, match=rf"expects {BATCH_SIZE} labels \(one per example\), but got 1 labels"):
         loss_fn.compute_loss_from_embeddings(_embeddings(num_columns), labels[:1])
-
-
-@pytest.mark.parametrize(
-    "loss_class",
-    [BatchAllTripletLoss, BatchHardTripletLoss, BatchHardSoftMarginTripletLoss, BatchSemiHardTripletLoss],
-)
-def test_batch_triplet_loss_uses_replaced_model(loss_class):
-    model = torch.nn.Identity()
-    loss = loss_class(model)
-    assert loss.model is loss.sentence_embedder is model
-
-    wrapped_model = torch.nn.Sequential(model)
-    loss.model = wrapped_model
-    assert loss.sentence_embedder is wrapped_model
-
-    features = {"sentence_embedding": torch.randn(4, 8)}
-    with patch.object(wrapped_model, "forward", wraps=wrapped_model.forward) as forward:
-        loss([features], torch.tensor([0, 0, 1, 1]))
-    forward.assert_called_once_with(features)
