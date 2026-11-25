@@ -61,6 +61,7 @@ NanoDatasetId = Literal[
     "hakari-bench/NanoRuMTEB",
     "hakari-bench/NanoSSRB",
     "hakari-bench/NanoVNMTEB",
+    "hotchpotch/NanoViDoRe_v3",
     "lightonai/NanoBEIR-ar",
     "lightonai/NanoBEIR-de",
     "lightonai/NanoBEIR-es",

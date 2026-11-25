@@ -76,6 +76,17 @@ class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
             evaluator = MultiVectorNanoRetrievalEvaluator("hakari-bench/NanoMTEB-Dutch", batch_size=8)
             results = evaluator(model)
             print(results[evaluator.primary_metric])
+
+        Collections with page images, such as NanoViDoRe, can be evaluated with a visual document retriever by reading
+        the documents from the ``image`` column::
+
+            model = MultiVectorEncoder("vidore/colqwen2-v1.0")
+            evaluator = MultiVectorNanoRetrievalEvaluator(
+                "hotchpotch/NanoViDoRe_v3", corpus_column="image", batch_size=8
+            )
+            results = evaluator(model)
+            print(evaluator.primary_metric)
+            # => "NanoViDoRe_v3_mean_maxsim_ndcg@10"
     """
 
     information_retrieval_class = MultiVectorInformationRetrievalEvaluator
