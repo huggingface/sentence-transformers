@@ -64,10 +64,10 @@ class SparseEncoderTrainer(BaseTrainer):
         loss (Optional[Union[:class:`torch.nn.Module`, Dict[str, :class:`torch.nn.Module`],\
             Callable[[:class:`~sentence_transformers.sparse_encoder.model.SparseEncoder`], :class:`torch.nn.Module`],\
             Dict[str, Callable[[:class:`~sentence_transformers.sparse_encoder.model.SparseEncoder`]]]], *optional*):
-            The loss function to use for training. Can either be a loss class instance, a dictionary mapping
-            dataset names to loss class instances, a function that returns a loss class instance given a model,
-            or a dictionary mapping dataset names to functions that return a loss class instance given a model.
-            In practice, the latter two are primarily used for hyper-parameter optimization. Will default to
+            The loss function to use for training. Can be a loss class instance, a function that returns a loss
+            class instance given a model, or a dictionary mapping dataset names to either option.
+            With ``model_init``, provide a loss class or factory, or a dictionary of them, instead of initialized
+            loss instances. Will default to
             :class:`~sentence_transformers.sparse_encoder.losses.SpladeLoss` with :class:`~sentence_transformers.sparse_encoder.losses.SparseMultipleNegativesRankingLoss` if no ``loss`` is provided.
         evaluator (Union[:class:`~sentence_transformers.base.evaluation.BaseEvaluator`,\
             List[:class:`~sentence_transformers.base.evaluation.BaseEvaluator`]], *optional*):
@@ -168,6 +168,47 @@ class SparseEncoderTrainer(BaseTrainer):
             query_regularizer_weight=5e-5,  # Weight for query loss
             document_regularizer_weight=3e-5,  # Weight for document loss
         )
+
+    def call_model_init(self, trial=None) -> SparseEncoder:
+        """Initialize the model and replace schedulers for losses recreated from factories.
+
+        ``prepare_loss`` registers new SPLADE schedulers. Remove the old ones so they
+        do not retain previous losses and models, then restore the scheduler type and
+        warmup ratio for each dataset.
+        """
+        if not hasattr(self, "loss") or isinstance(self.loss_init, nn.Module):
+            return super().call_model_init(trial)
+
+        for callback in self.callback_handler.callbacks:
+            if (
+                isinstance(callback, SpladeRegularizerWeightSchedulerCallback)
+                and type(callback) is not SpladeRegularizerWeightSchedulerCallback
+            ):
+                raise ValueError(
+                    f"Cannot recreate losses with {type(callback).__name__}: custom subclasses of "
+                    "SpladeRegularizerWeightSchedulerCallback are not supported with `model_init` and loss factories. "
+                    "Use the built-in callback or train without `model_init`."
+                )
+
+        losses = self.loss if isinstance(self.loss, dict) else {None: self.loss}
+        scheduler_settings = {
+            name: (callback.scheduler_type, callback.warmup_ratio)
+            for name, loss in losses.items()
+            for callback in self.callback_handler.callbacks
+            if isinstance(callback, SpladeRegularizerWeightSchedulerCallback) and callback.loss is loss
+        }
+        for callback in self.callback_handler.callbacks.copy():
+            if isinstance(callback, SpladeRegularizerWeightSchedulerCallback):
+                self.remove_callback(callback)
+
+        model = super().call_model_init(trial)
+        losses = self.loss if isinstance(self.loss, dict) else {None: self.loss}
+        for callback in self.callback_handler.callbacks:
+            if isinstance(callback, SpladeRegularizerWeightSchedulerCallback):
+                for name, loss in losses.items():
+                    if callback.loss is loss and name in scheduler_settings:
+                        callback.scheduler_type, callback.warmup_ratio = scheduler_settings[name]
+        return model
 
     def prepare_loss(
         self,

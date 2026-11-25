@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import gc
 import tempfile
+import weakref
 from contextlib import nullcontext
+from copy import deepcopy
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -10,7 +14,10 @@ from transformers import TrainerState
 
 from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments
 from sentence_transformers.sparse_encoder import losses
-from sentence_transformers.sparse_encoder.callbacks.splade_callbacks import SpladeRegularizerWeightSchedulerCallback
+from sentence_transformers.sparse_encoder.callbacks.splade_callbacks import (
+    SchedulerType,
+    SpladeRegularizerWeightSchedulerCallback,
+)
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 if is_datasets_available():
@@ -474,6 +481,112 @@ def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncod
     for splade_loss in loss.values():
         assert splade_loss.document_regularizer_weight == pytest.approx(3e-5 / 4)
         assert splade_loss.query_regularizer_weight == pytest.approx(5e-5 / 4)
+
+
+@pytest.mark.parametrize("as_dict", [False, True])
+@pytest.mark.parametrize("loss_type", [losses.SpladeLoss, losses.CachedSpladeLoss])
+def test_model_init_replaces_splade_schedulers(splade_bert_tiny_model, tmp_path, as_dict, loss_type):
+    document_weight = 3e-5
+
+    def loss_init(model, factor=1):
+        return loss_type(
+            model,
+            losses.SparseMultipleNegativesRankingLoss(model),
+            document_regularizer_weight=document_weight * factor,
+        )
+
+    trainer = SparseEncoderTrainer(
+        model_init=lambda: deepcopy(splade_bert_tiny_model),
+        loss={"first": loss_init, "second": partial(loss_init, factor=2)} if as_dict else loss_init,
+        args=SparseEncoderTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+    )
+    trainer.callback_handler.optimizer = torch.optim.SGD(trainer.model.parameters(), lr=1e-3)
+    other_callbacks = [
+        callback
+        for callback in trainer.callback_handler.callbacks
+        if not isinstance(callback, SpladeRegularizerWeightSchedulerCallback)
+    ]
+    previous_losses, previous_models = [], []
+    for _ in range(3):
+        current_losses = trainer.loss if as_dict else {None: trainer.loss}
+        previous_losses.extend(weakref.ref(loss) for loss in current_losses.values())
+        previous_models.append(weakref.ref(next(iter(current_losses.values())).model))
+        for name, loss in current_losses.items():
+            for callback in trainer.callback_handler.callbacks:
+                if isinstance(callback, SpladeRegularizerWeightSchedulerCallback) and callback.loss is loss:
+                    callback.scheduler_type = SchedulerType.LINEAR
+                    callback.warmup_ratio = 0.75 if name == "second" else 0.5
+        del current_losses, loss, callback
+
+        document_weight *= 2
+        model = trainer.call_model_init()
+        current_losses = trainer.loss if as_dict else {None: trainer.loss}
+        schedulers = [
+            callback
+            for callback in trainer.callback_handler.callbacks
+            if isinstance(callback, SpladeRegularizerWeightSchedulerCallback)
+        ]
+        assert len(schedulers) == len(current_losses)
+        assert [
+            callback for callback in trainer.callback_handler.callbacks if callback not in schedulers
+        ] == other_callbacks
+        state = TrainerState(max_steps=8)
+        trainer.callback_handler.on_train_begin(trainer.args, state, trainer.control)
+        for loss in current_losses.values():
+            assert loss.document_regularizer_weight == 0
+        state.global_step = 2
+        trainer.callback_handler.on_step_begin(trainer.args, state, trainer.control)
+        for name, loss in current_losses.items():
+            scheduler = next(callback for callback in schedulers if callback.loss is loss)
+            assert loss.model is model
+            assert scheduler.scheduler_type == SchedulerType.LINEAR
+            assert scheduler.warmup_ratio == (0.75 if name == "second" else 0.5)
+            target = document_weight * (2 if name == "second" else 1)
+            scale = state.global_step / (state.max_steps * scheduler.warmup_ratio)
+            assert loss.document_regularizer_weight == pytest.approx(target * scale)
+        del current_losses, loss, schedulers, scheduler
+
+    gc.collect()
+    assert all(reference() is None for reference in previous_losses)
+    assert all(reference() is None for reference in previous_models[1:])
+
+
+@pytest.mark.parametrize("loss_kind", ["factory", "dict", "default"])
+def test_model_init_with_custom_splade_scheduler(splade_bert_tiny_model, tmp_path, loss_kind):
+    class CustomScheduler(SpladeRegularizerWeightSchedulerCallback):
+        pass
+
+    def loss_init(model):
+        return losses.SpladeLoss(
+            model, losses.SparseMultipleNegativesRankingLoss(model), document_regularizer_weight=3e-5
+        )
+
+    loss = {"first": loss_init, "second": loss_init} if loss_kind == "dict" else loss_init
+    trainer = SparseEncoderTrainer(
+        model_init=lambda: deepcopy(splade_bert_tiny_model),
+        loss=None if loss_kind == "default" else loss,
+        args=SparseEncoderTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+    )
+    loss = trainer.loss["second"] if loss_kind == "dict" else trainer.loss
+    scheduler = next(
+        callback
+        for callback in trainer.callback_handler.callbacks
+        if isinstance(callback, SpladeRegularizerWeightSchedulerCallback) and callback.loss is loss
+    )
+    trainer.remove_callback(scheduler)
+    custom_scheduler = CustomScheduler(loss)
+    trainer.add_callback(custom_scheduler)
+    previous_callbacks = trainer.callback_handler.callbacks.copy()
+
+    if loss_kind == "default":
+        model = trainer.call_model_init()
+        assert custom_scheduler.loss is trainer.loss
+        assert custom_scheduler.loss.model is model
+    else:
+        with pytest.raises(ValueError, match="CustomScheduler.*not supported with `model_init` and loss factories"):
+            trainer.call_model_init()
+        assert loss.model is trainer.model
+    assert trainer.callback_handler.callbacks == previous_callbacks
 
 
 @pytest.mark.parametrize("during_training", [False, True])
