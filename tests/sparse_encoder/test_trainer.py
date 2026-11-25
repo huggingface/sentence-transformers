@@ -532,7 +532,6 @@ def test_trainer_logs_eval_loss_components_under_the_metric_key_prefix(
 def test_trainer_learning_rate_mapping_for_inference_free_splade_query_route(
     inference_free_splade_bert_tiny_model: SparseEncoder, tmp_path: Path
 ) -> None:
-    # The pattern used in the inference-free SPLADE training docs and the Router docstring.
     model = inference_free_splade_bert_tiny_model
     query_weight = model[0].sub_modules["query"][0].weight
     train_dataset = Dataset.from_dict({"query": ["a query"], "answer": ["an answer"]})

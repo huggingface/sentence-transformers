@@ -185,7 +185,7 @@ But if instead you want to train from another checkpoint, or from scratch, then 
                 }
             )
         
-        Additionally, it is recommended to use a much higher learning rate for the SparseStaticEmbedding module (the query route of the :class:`~sentence_transformers.sparse_encoder.modules.Router`) than for the rest of the model. For this, you should use the ``learning_rate_mapping`` argument in the :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments` to map parameter patterns to their learning rates. For example, if you want to use a learning rate of ``1e-3`` for the SparseStaticEmbedding module and ``2e-5`` for the rest of the model, you can do this. The patterns are matched with ``re.search`` against the parameter names, and the parameters of the query route are named ``0.sub_modules.query.0.weight``, so ``sub_modules\.query\.`` selects them::
+        It is recommended to use a higher learning rate for the query route (the SparseStaticEmbedding module) than for the rest of the model. Set this with ``learning_rate_mapping`` in the :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments`::
 
             args = SparseEncoderTrainingArguments(
                 ...,
@@ -848,7 +848,7 @@ The :class:`~sentence_transformers.sparse_encoder.trainer.SparseEncoderTrainer` 
             per_device_train_batch_size=16,
             per_device_eval_batch_size=16,
             learning_rate=2e-5,
-            learning_rate_mapping={r"sub_modules\.query\.": 1e-3},  # Set a higher learning rate for the query route (the SparseStaticEmbedding module)
+            learning_rate_mapping={r"sub_modules\.query\.": 1e-3},  # Set a higher learning rate for the query route
             warmup_steps=0.1,
             fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
             bf16=False,  # Set to True if you have a GPU that supports BF16
