@@ -179,6 +179,17 @@ class SparseEncoderTrainer(BaseTrainer):
         if not hasattr(self, "loss") or isinstance(self.loss_init, nn.Module):
             return super().call_model_init(trial)
 
+        for callback in self.callback_handler.callbacks:
+            if (
+                isinstance(callback, SpladeRegularizerWeightSchedulerCallback)
+                and type(callback) is not SpladeRegularizerWeightSchedulerCallback
+            ):
+                raise ValueError(
+                    f"Cannot recreate losses with {type(callback).__name__}: custom subclasses of "
+                    "SpladeRegularizerWeightSchedulerCallback are not supported with `model_init` and loss factories. "
+                    "Use the built-in callback or train without `model_init`."
+                )
+
         losses = self.loss if isinstance(self.loss, dict) else {None: self.loss}
         scheduler_settings = {
             name: (callback.scheduler_type, callback.warmup_ratio)

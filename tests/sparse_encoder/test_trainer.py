@@ -551,6 +551,44 @@ def test_model_init_replaces_splade_schedulers(splade_bert_tiny_model, tmp_path,
     assert all(reference() is None for reference in previous_models[1:])
 
 
+@pytest.mark.parametrize("loss_kind", ["factory", "dict", "default"])
+def test_model_init_with_custom_splade_scheduler(splade_bert_tiny_model, tmp_path, loss_kind):
+    class CustomScheduler(SpladeRegularizerWeightSchedulerCallback):
+        pass
+
+    def loss_init(model):
+        return losses.SpladeLoss(
+            model, losses.SparseMultipleNegativesRankingLoss(model), document_regularizer_weight=3e-5
+        )
+
+    loss = {"first": loss_init, "second": loss_init} if loss_kind == "dict" else loss_init
+    trainer = SparseEncoderTrainer(
+        model_init=lambda: deepcopy(splade_bert_tiny_model),
+        loss=None if loss_kind == "default" else loss,
+        args=SparseEncoderTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+    )
+    loss = trainer.loss["second"] if loss_kind == "dict" else trainer.loss
+    scheduler = next(
+        callback
+        for callback in trainer.callback_handler.callbacks
+        if isinstance(callback, SpladeRegularizerWeightSchedulerCallback) and callback.loss is loss
+    )
+    trainer.remove_callback(scheduler)
+    custom_scheduler = CustomScheduler(loss)
+    trainer.add_callback(custom_scheduler)
+    previous_callbacks = trainer.callback_handler.callbacks.copy()
+
+    if loss_kind == "default":
+        model = trainer.call_model_init()
+        assert custom_scheduler.loss is trainer.loss
+        assert custom_scheduler.loss.model is model
+    else:
+        with pytest.raises(ValueError, match="CustomScheduler.*not supported with `model_init` and loss factories"):
+            trainer.call_model_init()
+        assert loss.model is trainer.model
+    assert trainer.callback_handler.callbacks == previous_callbacks
+
+
 @pytest.mark.parametrize("during_training", [False, True])
 def test_trainer_logs_eval_loss_components_under_the_metric_key_prefix(
     splade_bert_tiny_model: SparseEncoder, tmp_path: Path, during_training: bool
