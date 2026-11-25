@@ -2,6 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "sentence-transformers[train]>=6.3.0",
+#     "faiss-cpu",
 # ]
 # ///
 import logging

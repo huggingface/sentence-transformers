@@ -1,7 +1,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "sentence-transformers[train,image]>=6.3.0",
+#     "sentence-transformers[train,image,kernels]>=6.3.0",
 # ]
 # ///
 """
