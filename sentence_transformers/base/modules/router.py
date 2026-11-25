@@ -240,14 +240,14 @@ class Router(InputModule):
             Additionally, it is common to use a different learning rate for the different routes. For this, you should
             use the ``learning_rate_mapping`` argument in the :class:`~sentence_transformers.sentence_transformer.training_args.SentenceTransformerTrainingArguments`
             or :class:`~sentence_transformers.sparse_encoder.training_args.SparseEncoderTrainingArguments` to map parameter patterns
-            to their learning rates. For example, if you want to use a learning rate of ``1e-3`` for an SparseStaticEmbedding module and
+            to their learning rates. For example, if you want to use a learning rate of ``1e-3`` for the ``"query"`` route and
             ``2e-5`` for the rest of the model, you can do this::
 
                 args = SparseEncoderTrainingArguments(
                     ...,
                     learning_rate=2e-5,
                     learning_rate_mapping={
-                        r"SparseStaticEmbedding\.*": 1e-3,
+                        r"sub_modules\.query\.": 1e-3,
                     }
                 )
 

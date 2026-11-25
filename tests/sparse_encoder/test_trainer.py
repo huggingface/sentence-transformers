@@ -642,3 +642,36 @@ def test_trainer_logs_eval_loss_components_under_the_metric_key_prefix(
             assert sum(logs[f"{prefix}_{name}"] for name in components) == pytest.approx(
                 logs[f"{prefix}_loss"], abs=1e-3
             )
+
+
+def test_trainer_learning_rate_mapping_for_inference_free_splade_query_route(
+    inference_free_splade_bert_tiny_model: SparseEncoder, tmp_path: Path
+) -> None:
+    model = inference_free_splade_bert_tiny_model
+    query_weight = model[0].sub_modules["query"][0].weight
+    train_dataset = Dataset.from_dict({"query": ["a query"], "answer": ["an answer"]})
+    trainer = SparseEncoderTrainer(
+        model=model,
+        args=SparseEncoderTrainingArguments(
+            output_dir=str(tmp_path),
+            learning_rate=2e-5,
+            learning_rate_mapping={r"sub_modules\.query\.": 1e-3},
+            router_mapping={"query": "query", "answer": "document"},
+            report_to="none",
+        ),
+        train_dataset=train_dataset,
+        loss=losses.SpladeLoss(
+            model,
+            losses.SparseMultipleNegativesRankingLoss(model),
+            query_regularizer_weight=0,
+            document_regularizer_weight=3e-4,
+        ),
+    )
+
+    optimizer = trainer.create_optimizer()
+
+    query_groups = [group for group in optimizer.param_groups if group["lr"] == 1e-3]
+    assert len(query_groups) == 1
+    assert [id(p) for p in query_groups[0]["params"]] == [id(query_weight)]
+    other_params = [p for group in optimizer.param_groups if group["lr"] != 1e-3 for p in group["params"]]
+    assert all(p is not query_weight for p in other_params)
