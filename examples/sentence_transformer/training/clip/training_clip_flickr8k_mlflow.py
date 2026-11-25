@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train,image]>=6.3.0",
+#     "mlflow",
+# ]
+# ///
 import logging
 from datetime import datetime
 
@@ -109,3 +116,9 @@ evaluator(model)
 # 9. Save the trained & evaluated model locally
 final_output_dir = f"{output_dir}/final"
 model.save_pretrained(final_output_dir)
+
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
+try:
+    model.push_to_hub(train_model_name)
+except Exception:
+    logging.exception("Could not upload the model. It is saved locally in %s.", final_output_dir)

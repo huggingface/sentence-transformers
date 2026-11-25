@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This script contains an example how to extend an existent sentence embedding model to new languages.
 
@@ -234,7 +240,7 @@ final_output_dir = f"{output_dir}/final"
 student_model.save(final_output_dir)
 
 # 8. (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = student_model_name if "/" not in student_model_name else student_model_name.split("/")[-1]
 try:
     student_model.push_to_hub(f"{model_name}-multilingual-{'-'.join(source_languages)}-{'-'.join(target_languages)}")

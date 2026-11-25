@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This example shows how to train a bi-encoder on the MS MARCO Passage Ranking dataset
 (https://github.com/microsoft/MSMARCO-Passage-Ranking) with the combined
@@ -236,7 +242,7 @@ def main():
     model.save_pretrained(final_output_dir)
 
     # 11. (Optional) Push it to the Hugging Face Hub
-    # Run `hf auth login` first if you haven't already.
+    # Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
     try:
         model.push_to_hub(run_name)
     except Exception:

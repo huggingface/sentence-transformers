@@ -105,7 +105,7 @@ def main():
     model.save_pretrained(final_output_dir)
 
     # 7. (Optional) save the model to the Hugging Face Hub!
-    # Run `hf auth login` to log into your Hugging Face account first
+    # Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
     try:
         model.push_to_hub(run_name)
     except Exception:
