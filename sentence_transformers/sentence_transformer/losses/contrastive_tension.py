@@ -222,7 +222,8 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, losses
+                from sentence_transformers import SentenceTransformer
+                from sentence_transformers.sentence_transformer.losses import ContrastiveTensionLossInBatchNegatives
                 from datasets import Dataset
 
                 model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
@@ -235,7 +236,7 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
                     ]
                 })
 
-                train_loss = losses.ContrastiveTensionLossInBatchNegatives(model=model)
+                train_loss = ContrastiveTensionLossInBatchNegatives(model=model)
 
                 args = SentenceTransformerTrainingArguments(
                     num_train_epochs=10,

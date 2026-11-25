@@ -55,7 +55,8 @@ class MarginMSELoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import MarginMSELoss
                 from datasets import Dataset
 
                 student_model = CrossEncoder("microsoft/mpnet-base")
@@ -74,7 +75,7 @@ class MarginMSELoss(nn.Module):
                     }
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.MarginMSELoss(student_model)
+                loss = MarginMSELoss(student_model)
 
                 trainer = CrossEncoderTrainer(
                     model=student_model,

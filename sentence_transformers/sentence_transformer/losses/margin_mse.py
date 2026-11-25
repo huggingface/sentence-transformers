@@ -68,7 +68,8 @@ class MarginMSELoss(nn.Module):
 
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import MarginMSELoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -78,7 +79,7 @@ class MarginMSELoss(nn.Module):
                     "text3": ["It's very sunny.", "She walked to the store."],
                     "label": [0.1, 0.8],
                 })
-                loss = losses.MarginMSELoss(model)
+                loss = MarginMSELoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -92,7 +93,8 @@ class MarginMSELoss(nn.Module):
 
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import MarginMSELoss
                 from datasets import Dataset
 
                 student_model = SentenceTransformer("microsoft/mpnet-base")
@@ -112,7 +114,7 @@ class MarginMSELoss(nn.Module):
                     }
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.MarginMSELoss(student_model)
+                loss = MarginMSELoss(student_model)
 
                 trainer = SentenceTransformerTrainer(
                     model=student_model,
@@ -125,7 +127,8 @@ class MarginMSELoss(nn.Module):
 
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import MarginMSELoss
                 from datasets import Dataset
                 import torch
 
@@ -161,7 +164,7 @@ class MarginMSELoss(nn.Module):
 
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.MarginMSELoss(student_model)
+                loss = MarginMSELoss(student_model)
 
                 trainer = SentenceTransformerTrainer(model=student_model, train_dataset=train_dataset, loss=loss)
                 trainer.train()

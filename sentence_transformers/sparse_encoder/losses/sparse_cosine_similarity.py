@@ -50,7 +50,8 @@ class SparseCosineSimilarityLoss(CosineSimilarityLoss):
             ::
 
                 from datasets import Dataset
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseCosineSimilarityLoss, SpladeLoss
 
                 model = SparseEncoder("distilbert/distilbert-base-uncased")
                 train_dataset = Dataset.from_dict(
@@ -60,9 +61,9 @@ class SparseCosineSimilarityLoss(CosineSimilarityLoss):
                         "score": [1.0, 0.3],
                     }
                 )
-                loss = losses.SpladeLoss(
+                loss = SpladeLoss(
                     model=model,
-                    loss=losses.SparseCosineSimilarityLoss(model),
+                    loss=SparseCosineSimilarityLoss(model),
                     document_regularizer_weight=5e-5,
                     use_document_regularizer_only=True,
                 )

@@ -180,7 +180,8 @@ class LambdaLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import LambdaLoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -192,7 +193,7 @@ class LambdaLoss(nn.Module):
                     ],
                     "labels": [[1, 0], [1, 1, 0]],
                 })
-                loss = losses.LambdaLoss(model)
+                loss = LambdaLoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,

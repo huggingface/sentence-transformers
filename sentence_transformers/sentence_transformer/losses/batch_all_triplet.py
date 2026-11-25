@@ -60,7 +60,8 @@ class BatchAllTripletLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import BatchAllTripletLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -75,7 +76,7 @@ class BatchAllTripletLoss(nn.Module):
                     ],
                     "label": [0, 1, 0, 0, 2],
                 })
-                loss = losses.BatchAllTripletLoss(model)
+                loss = BatchAllTripletLoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

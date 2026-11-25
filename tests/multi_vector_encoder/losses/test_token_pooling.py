@@ -5,7 +5,13 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from sentence_transformers.multi_vector_encoder import losses as mve_losses
+from sentence_transformers.multi_vector_encoder.losses import (
+    CachedMultiVectorMultipleNegativesRankingLoss,
+    MultiVectorDistillKLDivLoss,
+    MultiVectorMatryoshkaLoss,
+    MultiVectorMultipleNegativesRankingLoss,
+    MultiVectorTokenPoolingLoss,
+)
 from sentence_transformers.multi_vector_encoder.modules import (
     BaseTokenPooling,
     HierarchicalTokenPooling,
@@ -51,11 +57,11 @@ def _leaves(features: list[dict[str, Tensor]]) -> list[Tensor]:
 
 
 def _mnrl(model: nn.Module, **kwargs) -> nn.Module:
-    return mve_losses.MultiVectorMultipleNegativesRankingLoss(model=model, **kwargs)
+    return MultiVectorMultipleNegativesRankingLoss(model=model, **kwargs)
 
 
 def _cached_mnrl(model: nn.Module, **kwargs) -> nn.Module:
-    return mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+    return CachedMultiVectorMultipleNegativesRankingLoss(
         model=model, mini_batch_size=2, show_progress_bar=False, **kwargs
     )
 
@@ -83,7 +89,7 @@ def test_passthrough_only_matches_wrapped_loss(build_inner, use_none: bool) -> N
     leaves = _leaves(wrapped_features)
     model = _PassthroughModel()
     pooling = None if use_none else HierarchicalTokenPooling(pool_factor=1, normalize_embeddings=False)
-    loss = mve_losses.MultiVectorTokenPoolingLoss(model, build_inner(model), token_poolings=[pooling])
+    loss = MultiVectorTokenPoolingLoss(model, build_inner(model), token_poolings=[pooling])
     value = loss(wrapped_features, None)
     value.backward()
 
@@ -120,9 +126,7 @@ def test_token_pooling_equals_manual_sum_of_pooled_losses(build_inner, token_poo
     wrapped_features = _build_features()
     leaves = _leaves(wrapped_features)
     model = _PassthroughModel()
-    loss = mve_losses.MultiVectorTokenPoolingLoss(
-        model, build_inner(model), token_poolings=token_poolings, weights=weights
-    )
+    loss = MultiVectorTokenPoolingLoss(model, build_inner(model), token_poolings=token_poolings, weights=weights)
     value = loss(iter(wrapped_features) if use_generator else wrapped_features, None)
     value.backward()
     if build_inner is _mnrl:
@@ -151,15 +155,13 @@ def test_token_pooling_with_kd_loss() -> None:
     wrapped_features = _build_features()
     leaves = _leaves(wrapped_features)
     model = _PassthroughModel()
-    kd = mve_losses.MultiVectorDistillKLDivLoss(model=model)
-    loss = mve_losses.MultiVectorTokenPoolingLoss(
-        model, kd, token_poolings=[None, HierarchicalTokenPooling(pool_factor=2)]
-    )
+    kd = MultiVectorDistillKLDivLoss(model=model)
+    loss = MultiVectorTokenPoolingLoss(model, kd, token_poolings=[None, HierarchicalTokenPooling(pool_factor=2)])
     value = loss(wrapped_features, labels)
     value.backward()
 
     manual_features = _build_features()
-    plain = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel())
+    plain = MultiVectorDistillKLDivLoss(model=_PassthroughModel())
     manual_value = plain(manual_features, labels)
     manual_value = manual_value + plain(_pool_reference(manual_features, pooling), labels)
     manual_value.backward()
@@ -188,11 +190,11 @@ def test_modifiers_with_dictionary_of_losses(modifier: str) -> None:
         leaves = _leaves(features)
         loss = TwoPartLoss(_mnrl(model), as_dict)
         if modifier in ("matryoshka", "both"):
-            loss = mve_losses.MultiVectorMatryoshkaLoss(
+            loss = MultiVectorMatryoshkaLoss(
                 model, loss, matryoshka_dims=[DIM, DIM // 2], matryoshka_weights=[1.0, 0.5]
             )
         if modifier in ("token_pooling", "both"):
-            loss = mve_losses.MultiVectorTokenPoolingLoss(
+            loss = MultiVectorTokenPoolingLoss(
                 model, loss, token_poolings=[None, HierarchicalTokenPooling(pool_factor=2)], weights=[1.0, 0.5]
             )
 
@@ -210,10 +212,9 @@ def test_modifiers_with_dictionary_of_losses(modifier: str) -> None:
 
 
 def test_stacked_modifiers_cached_matches_non_cached() -> None:
-
     def build_stacked(model: nn.Module, inner: nn.Module) -> nn.Module:
-        truncated = mve_losses.MultiVectorMatryoshkaLoss(model, inner, matryoshka_dims=[DIM, DIM // 2])
-        return mve_losses.MultiVectorTokenPoolingLoss(
+        truncated = MultiVectorMatryoshkaLoss(model, inner, matryoshka_dims=[DIM, DIM // 2])
+        return MultiVectorTokenPoolingLoss(
             model,
             truncated,
             token_poolings=[None, HierarchicalTokenPooling(pool_factor=2)],
@@ -246,8 +247,8 @@ def test_stacked_modifiers_fp16_padding_has_finite_gradients(mve_bert_tiny_model
     model = mve_bert_tiny_model.to(device="cpu", dtype=torch.float16).eval()
     dim = model.get_embedding_dimension()
     pooling = HierarchicalTokenPooling(pool_factor=2)
-    truncated = mve_losses.MultiVectorMatryoshkaLoss(model, build_inner(model), matryoshka_dims=[dim, dim // 2])
-    loss = mve_losses.MultiVectorTokenPoolingLoss(model, truncated, token_poolings=[None, pooling], weights=[0.5, 0.5])
+    truncated = MultiVectorMatryoshkaLoss(model, build_inner(model), matryoshka_dims=[dim, dim // 2])
+    loss = MultiVectorTokenPoolingLoss(model, truncated, token_poolings=[None, pooling], weights=[0.5, 0.5])
     features = [
         batch_to_device(model.preprocess(texts, task=task), model.device)
         for texts, task in [
@@ -276,11 +277,11 @@ def test_stacked_modifiers_fp16_padding_has_finite_gradients(mve_bert_tiny_model
 @pytest.mark.parametrize("build_inner", [_mnrl, _cached_mnrl], ids=["mnrl", "cached_mnrl"])
 def test_matryoshka_outside_token_pooling_raises(build_inner) -> None:
     model = _PassthroughModel()
-    pooled = mve_losses.MultiVectorTokenPoolingLoss(
+    pooled = MultiVectorTokenPoolingLoss(
         model, build_inner(model), token_poolings=[None, HierarchicalTokenPooling(pool_factor=2)]
     )
     with pytest.raises(ValueError, match="MultiVectorTokenPoolingLoss must wrap MultiVectorMatryoshkaLoss"):
-        mve_losses.MultiVectorMatryoshkaLoss(model, pooled, matryoshka_dims=[DIM, DIM // 2])
+        MultiVectorMatryoshkaLoss(model, pooled, matryoshka_dims=[DIM, DIM // 2])
 
 
 @pytest.mark.parametrize("build_inner", [_mnrl, _cached_mnrl], ids=["mnrl", "cached_mnrl"])
@@ -300,10 +301,10 @@ def test_stacked_modifiers_match_encoding(mve_bert_tiny_model, build_inner) -> N
     dim_weights = [0.4, 0.6]
     poolings = [None, HierarchicalTokenPooling(max_tokens=4)]
     pooling_weights = [0.3, 0.7]
-    truncated = mve_losses.MultiVectorMatryoshkaLoss(
+    truncated = MultiVectorMatryoshkaLoss(
         model, build_inner(model, scale=1.0), matryoshka_dims=dims, matryoshka_weights=dim_weights
     )
-    loss = mve_losses.MultiVectorTokenPoolingLoss(model, truncated, token_poolings=poolings, weights=pooling_weights)
+    loss = MultiVectorTokenPoolingLoss(model, truncated, token_poolings=poolings, weights=pooling_weights)
     features = [
         batch_to_device(model.preprocess(texts, task=task), model.device)
         for texts, task in [(queries, "query"), (documents, "document")]
@@ -325,13 +326,13 @@ def test_stacked_modifiers_match_encoding(mve_bert_tiny_model, build_inner) -> N
 def test_empty_variant_list_raises() -> None:
     model = _PassthroughModel()
     with pytest.raises(ValueError, match="at least one"):
-        mve_losses.MultiVectorTokenPoolingLoss(model, _mnrl(model), token_poolings=[])
+        MultiVectorTokenPoolingLoss(model, _mnrl(model), token_poolings=[])
 
 
 def test_non_pooling_entry_raises() -> None:
     model = _PassthroughModel()
     with pytest.raises(ValueError, match="BaseTokenPooling"):
-        mve_losses.MultiVectorTokenPoolingLoss(model, _mnrl(model), token_poolings=[nn.Identity()])
+        MultiVectorTokenPoolingLoss(model, _mnrl(model), token_poolings=[nn.Identity()])
 
 
 @pytest.mark.parametrize("build_inner", [_mnrl, _cached_mnrl], ids=["mnrl", "cached_mnrl"])
@@ -351,12 +352,12 @@ def test_pooler_parameters_and_outer_gradient_scaling(build_inner, trainable: bo
     if build_inner is _cached_mnrl and trainable:
         calculate_loss = inner.calculate_loss
         with pytest.raises(ValueError, match="token_poolings with trainable parameters"):
-            mve_losses.MultiVectorTokenPoolingLoss(model, inner, token_poolings=[None, pooling])
+            MultiVectorTokenPoolingLoss(model, inner, token_poolings=[None, pooling])
         assert inner.calculate_loss == calculate_loss
         return
 
     features = _build_features()
-    loss = mve_losses.MultiVectorTokenPoolingLoss(model, inner, token_poolings=[None, pooling], weights=[0.3, 0.7])
+    loss = MultiVectorTokenPoolingLoss(model, inner, token_poolings=[None, pooling], weights=[0.3, 0.7])
     value = loss(features, None)
     (value / 4).backward()
 
@@ -380,7 +381,7 @@ def test_pooler_parameters_and_outer_gradient_scaling(build_inner, trainable: bo
 def test_weights_length_mismatch_raises() -> None:
     model = _PassthroughModel()
     with pytest.raises(ValueError, match="one weight per pooling variant"):
-        mve_losses.MultiVectorTokenPoolingLoss(
+        MultiVectorTokenPoolingLoss(
             model,
             _mnrl(model),
             token_poolings=[HierarchicalTokenPooling(pool_factor=1), HierarchicalTokenPooling(pool_factor=2)],
@@ -390,7 +391,7 @@ def test_weights_length_mismatch_raises() -> None:
 
 def test_get_config_dict_describes_variants() -> None:
     model = _PassthroughModel()
-    loss = mve_losses.MultiVectorTokenPoolingLoss(
+    loss = MultiVectorTokenPoolingLoss(
         model,
         _mnrl(model),
         token_poolings=[None, HierarchicalTokenPooling(pool_factor=2)],
@@ -419,7 +420,7 @@ def test_token_pooling_on_a_real_model(mve_bert_tiny_model) -> None:
             ),
         ]
     ]
-    loss = mve_losses.MultiVectorTokenPoolingLoss(
+    loss = MultiVectorTokenPoolingLoss(
         model, _mnrl(model), token_poolings=[None, HierarchicalTokenPooling(pool_factor=2)]
     )
     value = loss(features, None)

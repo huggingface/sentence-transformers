@@ -11,8 +11,13 @@ from sentence_transformers import (
     MultiVectorEncoderTrainer,
     MultiVectorEncoderTrainingArguments,
 )
-from sentence_transformers.multi_vector_encoder import losses as mve_losses
 from sentence_transformers.multi_vector_encoder.data_collator import MultiVectorEncoderDataCollator
+from sentence_transformers.multi_vector_encoder.losses import (
+    CachedMultiVectorMultipleNegativesRankingLoss,
+    MultiVectorDistillKLDivLoss,
+    MultiVectorMarginMSELoss,
+    MultiVectorMultipleNegativesRankingLoss,
+)
 from sentence_transformers.util import is_training_available
 
 if not is_training_available():
@@ -80,24 +85,24 @@ def test_default_loss_is_mnr(mve_bert_tiny_model: MultiVectorEncoder, triplet_da
     with tempfile.TemporaryDirectory() as tmpdir:
         args = MultiVectorEncoderTrainingArguments(output_dir=tmpdir, report_to=[], save_strategy="no")
         trainer = MultiVectorEncoderTrainer(model=model, args=args, train_dataset=triplet_dataset)
-        assert isinstance(trainer.loss, mve_losses.MultiVectorMultipleNegativesRankingLoss)
+        assert isinstance(trainer.loss, MultiVectorMultipleNegativesRankingLoss)
 
 
 def test_train_with_mnr(mve_bert_tiny_model: MultiVectorEncoder, triplet_dataset: Dataset) -> None:
     model = mve_bert_tiny_model
-    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model)
+    loss = MultiVectorMultipleNegativesRankingLoss(model)
     _train(model, triplet_dataset, loss)
 
 
 def test_train_with_cached_mnr(mve_bert_tiny_model: MultiVectorEncoder, triplet_dataset: Dataset) -> None:
     model = mve_bert_tiny_model
-    loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(model, mini_batch_size=2)
+    loss = CachedMultiVectorMultipleNegativesRankingLoss(model, mini_batch_size=2)
     _train(model, triplet_dataset, loss)
 
 
 def test_train_with_distill_kl(mve_bert_tiny_model: MultiVectorEncoder, kd_dataset: Dataset) -> None:
     model = mve_bert_tiny_model
-    loss = mve_losses.MultiVectorDistillKLDivLoss(model)
+    loss = MultiVectorDistillKLDivLoss(model)
     _train(model, kd_dataset, loss)
 
 
@@ -111,7 +116,7 @@ def test_train_with_margin_mse(mve_bert_tiny_model: MultiVectorEncoder) -> None:
             "label": [2.5, 3.0],
         }
     )
-    loss = mve_losses.MultiVectorMarginMSELoss(model)
+    loss = MultiVectorMarginMSELoss(model)
     _train(model, dataset, loss)
 
 

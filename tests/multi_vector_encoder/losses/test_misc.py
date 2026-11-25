@@ -22,7 +22,12 @@ import sentence_transformers.multi_vector_encoder.losses.multiple_negatives_rank
 import sentence_transformers.util.distributed as distributed_module
 from sentence_transformers.base.losses.gradcache import _minibatch_ranges
 from sentence_transformers.base.losses.merged_forward import column_merging_disabled, merge_feature_batches
-from sentence_transformers.multi_vector_encoder import losses as mve_losses
+from sentence_transformers.multi_vector_encoder.losses import (
+    CachedMultiVectorMultipleNegativesRankingLoss,
+    MultiVectorDistillKLDivLoss,
+    MultiVectorMarginMSELoss,
+    MultiVectorMultipleNegativesRankingLoss,
+)
 from sentence_transformers.multi_vector_encoder.modules import MultiVectorMask
 from sentence_transformers.util import maxsim, maxsim_pairwise
 
@@ -66,9 +71,9 @@ def varlen_features() -> list[dict[str, Tensor]]:
 @pytest.mark.parametrize(
     "loss_cls",
     [
-        mve_losses.MultiVectorMultipleNegativesRankingLoss,
-        mve_losses.MultiVectorDistillKLDivLoss,
-        mve_losses.MultiVectorMarginMSELoss,
+        MultiVectorMultipleNegativesRankingLoss,
+        MultiVectorDistillKLDivLoss,
+        MultiVectorMarginMSELoss,
     ],
 )
 def test_losses_preserve_encoder_masks(varlen_features, loss_cls) -> None:
@@ -92,7 +97,7 @@ def test_losses_preserve_encoder_masks(varlen_features, loss_cls) -> None:
 
 
 def test_mnr_handles_varlen_document_columns(varlen_features) -> None:
-    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
+    loss = MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
     value = loss(varlen_features, labels=None)
     assert torch.isfinite(value), f"loss must be finite, got {value.item()}"
     value.backward()
@@ -101,7 +106,7 @@ def test_mnr_handles_varlen_document_columns(varlen_features) -> None:
 def test_cached_mnr_handles_varlen_document_columns(varlen_features) -> None:
     """Cross-column varlen through the GradCache path. Exercises the same surface as the non-cached
     MNRL test but with chunked embedding forward + cached gradients."""
-    loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+    loss = CachedMultiVectorMultipleNegativesRankingLoss(
         model=_PassthroughModel(), mini_batch_size=2, show_progress_bar=False
     )
     value = loss(varlen_features, labels=None)
@@ -142,7 +147,7 @@ def test_cached_mnr_slices_flattened_vlm_inputs_grid_aware() -> None:
         "num_images_per_sample": torch.ones(batch, dtype=torch.long),
     }
 
-    loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+    loss = CachedMultiVectorMultipleNegativesRankingLoss(
         model=_GridCheckingModel(), mini_batch_size=2, show_progress_bar=False
     )
     with torch.no_grad():
@@ -164,12 +169,12 @@ def test_cached_mnr_gradients_match_non_cached() -> None:
         ]
 
     plain_features = build_features()
-    plain_loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
+    plain_loss = MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
     plain_value = plain_loss(plain_features, labels=None)
     plain_value.backward()
 
     cached_features = build_features()
-    cached_loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+    cached_loss = CachedMultiVectorMultipleNegativesRankingLoss(
         model=_PassthroughModel(), mini_batch_size=2, show_progress_bar=False
     )
     cached_value = cached_loss(cached_features, labels=None)
@@ -214,12 +219,12 @@ def test_cached_mnr_token_budget_matches_non_cached() -> None:
     assert len({end - begin for begin, end in ranges}) > 1, f"expected uneven mini-batches, got {ranges}"
 
     plain_features = build_features()
-    plain_loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
+    plain_loss = MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
     plain_value = plain_loss(plain_features, labels=None)
     plain_value.backward()
 
     cached_features = build_features()
-    cached_loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+    cached_loss = CachedMultiVectorMultipleNegativesRankingLoss(
         model=_PassthroughModel(),
         mini_batch_num_tokens=10,
         show_progress_bar=False,
@@ -238,7 +243,7 @@ def test_cached_mnr_rejects_non_positive_token_budget() -> None:
     """The constructor runs the shared validation, so a non-positive budget fails at build time
     rather than producing a degenerate mini-batch split later."""
     with pytest.raises(ValueError, match="mini_batch_num_tokens must be a positive integer or None."):
-        mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel(), mini_batch_num_tokens=0)
+        CachedMultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel(), mini_batch_num_tokens=0)
 
 
 class _RaggedTrimPassthroughModel(_PassthroughModel):
@@ -282,7 +287,7 @@ def test_cached_mnr_handles_varlen_mini_batches_within_a_column() -> None:
         _make_ragged_feature([8, 12, 9, 11], dim=dim, seed=3),
     ]
 
-    loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+    loss = CachedMultiVectorMultipleNegativesRankingLoss(
         model=_RaggedTrimPassthroughModel(), mini_batch_size=2, show_progress_bar=False
     )
     value = loss(features, labels=None)
@@ -293,7 +298,7 @@ def test_cached_mnr_handles_varlen_mini_batches_within_a_column() -> None:
 def test_mnr_pad_positions_do_not_influence_loss(varlen_features) -> None:
     """Sanity: corrupting the (would-be-)padded positions of the shorter column to a value that
     would dominate MaxSim must NOT change the loss, because the mask excludes them."""
-    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
+    loss = MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
     baseline = loss(varlen_features, labels=None).item()
 
     # Reshape: make the positive column LONGER but stuff garbage past its real length, mask covers
@@ -332,7 +337,7 @@ def test_mnr_fixed_length_regression() -> None:
         _make_feature(t_tokens=12, batch=batch, dim=dim, seed=12),
         _make_feature(t_tokens=12, batch=batch, dim=dim, seed=13),
     ]
-    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
+    loss = MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
     value = loss(same_t_features, labels=None)
     assert torch.isfinite(value)
 
@@ -355,7 +360,7 @@ def test_losses_use_collator_stamped_task_over_positional(varlen_features) -> No
     varlen_features[0]["task"] = "document"
     varlen_features[1]["task"] = "query"
     model = _TaskRecordingModel()
-    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=model)
+    loss = MultiVectorMultipleNegativesRankingLoss(model=model)
     loss(varlen_features, labels=None)
     # Third column carries no stamp and falls back to the positional default.
     assert model.seen_tasks == ["document", "query", "document"]
@@ -366,9 +371,7 @@ def test_cached_mnr_stamped_task_reaches_backward_hook(varlen_features) -> None:
     govern both the no-grad forward and the with-grad re-run."""
     varlen_features[0]["task"] = "document"  # override the positional "query" for column 0
     model = _TaskRecordingModel()
-    loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
-        model=model, mini_batch_size=2, show_progress_bar=False
-    )
+    loss = CachedMultiVectorMultipleNegativesRankingLoss(model=model, mini_batch_size=2, show_progress_bar=False)
     value = loss(varlen_features, labels=None)
     value.backward()
     # 4 rows / mini_batch_size=2 -> 2 calls per column per phase, 3 columns, 2 phases = 12 calls.
@@ -405,20 +408,20 @@ def test_losses_read_scoring_mask_from_model_output() -> None:
 
     model = _MaskRewritingModel()
 
-    mnrl = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=model)
+    mnrl = MultiVectorMultipleNegativesRankingLoss(model=model)
     baseline = mnrl(build(corrupt=False, n_docs=2), labels=None).item()
     corrupted = mnrl(build(corrupt=True, n_docs=2), labels=None).item()
     assert abs(baseline - corrupted) < 1e-5, f"MNRL read the input mask: {baseline} vs {corrupted}"
 
     margin_labels = torch.zeros(batch)
-    margin_mse = mve_losses.MultiVectorMarginMSELoss(model=model)
+    margin_mse = MultiVectorMarginMSELoss(model=model)
     baseline = margin_mse(build(corrupt=False, n_docs=2), margin_labels).item()
     corrupted = margin_mse(build(corrupt=True, n_docs=2), margin_labels).item()
     assert abs(baseline - corrupted) < 1e-5, f"MarginMSE read the input mask: {baseline} vs {corrupted}"
 
     # KD shape: 2 queries with 3 candidate document columns and (2, 3) teacher scores.
     kd_labels = torch.tensor([[5.0, 1.0, 0.1], [4.0, 0.5, 0.2]])
-    kd = mve_losses.MultiVectorDistillKLDivLoss(model=model)
+    kd = MultiVectorDistillKLDivLoss(model=model)
 
     def build_kd(corrupt: bool) -> list[dict[str, Tensor]]:
         query = _make_feature(t_tokens=6, batch=2, dim=dim, seed=7)
@@ -442,20 +445,18 @@ def test_similarity_fct_config_includes_hyperparameters() -> None:
     serializing as their bare name."""
     from sentence_transformers.multi_vector_encoder.scoring import XTRKDScores, XTRScores
 
-    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(
-        model=_PassthroughModel(), similarity_fct=XTRScores(top_k=16)
-    )
+    loss = MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel(), similarity_fct=XTRScores(top_k=16))
     assert loss.get_config_dict()["similarity_fct"] == "XTRScores(top_k=16, chunk_elements=None)"
 
-    cached = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+    cached = CachedMultiVectorMultipleNegativesRankingLoss(
         model=_PassthroughModel(), similarity_fct=XTRScores(top_k=16, chunk_elements=4)
     )
     assert cached.get_config_dict()["similarity_fct"] == "XTRScores(top_k=16, chunk_elements=4)"
 
-    kd = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel(), similarity_fct=XTRKDScores(top_k=8))
+    kd = MultiVectorDistillKLDivLoss(model=_PassthroughModel(), similarity_fct=XTRKDScores(top_k=8))
     assert kd.get_config_dict()["similarity_fct"] == "XTRKDScores(top_k=8, chunk_elements=None)"
 
-    default = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
+    default = MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
     assert default.get_config_dict()["similarity_fct"] is None
 
 
@@ -464,10 +465,8 @@ def test_mnr_gather_across_devices_single_process_matches_no_gather(varlen_featu
     the local tensor and ``all_gather_padded`` skips the cross-rank pad, so the loss equals the
     non-gathered loss (world_size=1, rank=0). Guards the gather wiring without a real process group.
     The cross-rank pad itself is only reachable under multi-GPU DDP, which this cannot exercise."""
-    base = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
-    gathered = mve_losses.MultiVectorMultipleNegativesRankingLoss(
-        model=_PassthroughModel(), gather_across_devices=True
-    )
+    base = MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel())
+    gathered = MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel(), gather_across_devices=True)
     baseline = base(varlen_features, labels=None)
     value = gathered(varlen_features, labels=None)
     assert torch.isfinite(value)
@@ -478,7 +477,7 @@ def test_mnr_gather_across_devices_single_process_matches_no_gather(varlen_featu
 def test_cached_mnr_gather_across_devices_single_process(varlen_features) -> None:
     """Single-process gather guard for the GradCache loss: the gather block must run (all_gather
     no-ops without a process group) and produce a finite, differentiable loss."""
-    loss = mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+    loss = CachedMultiVectorMultipleNegativesRankingLoss(
         model=_PassthroughModel(), mini_batch_size=2, show_progress_bar=False, gather_across_devices=True
     )
     value = loss(varlen_features, labels=None)
@@ -491,7 +490,7 @@ def test_distill_kl_div_validates_input_columns_and_label_shape() -> None:
     columns, must fail loud instead of producing an opaque shape error. A single document column is
     rejected too: a softmax over one candidate is constant, so it would train nothing at a perfect
     reported loss."""
-    loss = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel())
+    loss = MultiVectorDistillKLDivLoss(model=_PassthroughModel())
     queries = _make_feature(t_tokens=4, batch=3, dim=8, seed=1)
     with pytest.raises(ValueError, match="at least 3 sentence features"):
         loss([queries], torch.randn(3, 2))
@@ -511,7 +510,7 @@ def test_distill_kl_div_rejects_unusable_temperatures(bad: float) -> None:
     first backward, so both are rejected at construction like the evaluator already does."""
     for kwargs in ({"temperature": bad}, {"student_temperature": bad}, {"teacher_temperature": bad}):
         with pytest.raises(ValueError, match="must be a positive finite number"):
-            mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel(), **kwargs)
+            MultiVectorDistillKLDivLoss(model=_PassthroughModel(), **kwargs)
 
 
 def test_distill_kl_div_warns_once_when_the_teacher_collapses(caplog) -> None:
@@ -523,7 +522,7 @@ def test_distill_kl_div_warns_once_when_the_teacher_collapses(caplog) -> None:
         return [_make_feature(t_tokens=4 + way, batch=2, dim=8, seed=1 + way) for way in range(3)]
 
     labels = torch.tensor([[8.5, -10.0], [7.0, -12.0]])
-    loss = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel(), teacher_temperature=0.1)
+    loss = MultiVectorDistillKLDivLoss(model=_PassthroughModel(), teacher_temperature=0.1)
     with caplog.at_level("WARNING"):
         loss(build_features(), labels)
     assert "teacher_temperature=0.1" in caplog.text
@@ -534,7 +533,7 @@ def test_distill_kl_div_warns_once_when_the_teacher_collapses(caplog) -> None:
         loss(build_features(), labels)
     assert caplog.text == "", "the check is latched to the first forward"
 
-    quiet = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel())
+    quiet = MultiVectorDistillKLDivLoss(model=_PassthroughModel())
     with caplog.at_level("WARNING"):
         quiet(build_features(), labels)
     assert caplog.text == "", "a temperature matched to the spread must not warn"
@@ -545,11 +544,11 @@ def test_distill_kl_div_warns_once_when_the_teacher_collapses(caplog) -> None:
     [
         (
             mnrl_module,
-            lambda **kwargs: mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel(), **kwargs),
+            lambda **kwargs: MultiVectorMultipleNegativesRankingLoss(model=_PassthroughModel(), **kwargs),
         ),
         (
             cached_mnrl_module,
-            lambda **kwargs: mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+            lambda **kwargs: CachedMultiVectorMultipleNegativesRankingLoss(
                 model=_PassthroughModel(), mini_batch_size=2, show_progress_bar=False, **kwargs
             ),
         ),
@@ -648,14 +647,14 @@ def test_distill_kl_div_merged_forward_matches_per_column() -> None:
     def float_features() -> list[dict[str, Tensor]]:
         return [_make_feature(6, batch, 8, seed=7)] + [_make_feature(10, batch, 8, seed=8 + way) for way in range(3)]
 
-    loss = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel())
+    loss = MultiVectorDistillKLDivLoss(model=_PassthroughModel())
     assert merge_feature_batches(float_features()[1:]) is not None
     merged_value = loss(float_features(), kd_labels).item()
     with column_merging_disabled():
         fallback_value = loss(float_features(), kd_labels).item()
     assert abs(merged_value - fallback_value) < 1e-6
 
-    loss = mve_losses.MultiVectorDistillKLDivLoss(model=_TokenizingModel())
+    loss = MultiVectorDistillKLDivLoss(model=_TokenizingModel())
     assert merge_feature_batches(_int_features()[1:]) is not None
     merged_value = loss(_int_features(), kd_labels).item()
     with column_merging_disabled():
@@ -677,8 +676,8 @@ def test_distill_kl_div_mini_batch_matches_full() -> None:
     (leading padding kept, so the left-padded column keeps its positions): the loss must not change."""
     kd_labels = torch.tensor([[5.0, 1.0, 0.1], [4.0, 0.5, 0.2]])
 
-    full = mve_losses.MultiVectorDistillKLDivLoss(model=_TokenizingModel())
-    chunked = mve_losses.MultiVectorDistillKLDivLoss(model=_TokenizingModel(), mini_batch_size=2)
+    full = MultiVectorDistillKLDivLoss(model=_TokenizingModel())
+    chunked = MultiVectorDistillKLDivLoss(model=_TokenizingModel(), mini_batch_size=2)
     full_value = full(_int_features(), kd_labels).item()
     chunked_value = chunked(_int_features(), kd_labels).item()
     assert abs(full_value - chunked_value) < 1e-6
@@ -697,8 +696,8 @@ def test_margin_mse_merged_forward_matches_per_column() -> None:
     and per-column fallback paths must all produce the same loss."""
     margins = torch.tensor([[0.4, 1.2], [0.1, 0.6]])
 
-    merged = mve_losses.MultiVectorMarginMSELoss(model=_TokenizingModel())
-    chunked = mve_losses.MultiVectorMarginMSELoss(model=_TokenizingModel(), mini_batch_size=2)
+    merged = MultiVectorMarginMSELoss(model=_TokenizingModel())
+    chunked = MultiVectorMarginMSELoss(model=_TokenizingModel(), mini_batch_size=2)
     merged_value = merged(_int_features(), margins).item()
     chunked_value = chunked(_int_features(), margins).item()
     with column_merging_disabled():
@@ -710,8 +709,8 @@ def test_margin_mse_merged_forward_matches_per_column() -> None:
 def test_mnrl_merged_forward_matches_per_column() -> None:
     """MNRL merges only the document columns, keeping the query column on its own forward: merged,
     chunked, and per-column fallback paths must all produce the same loss."""
-    merged = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_TokenizingModel())
-    chunked = mve_losses.MultiVectorMultipleNegativesRankingLoss(model=_TokenizingModel(), mini_batch_size=2)
+    merged = MultiVectorMultipleNegativesRankingLoss(model=_TokenizingModel())
+    chunked = MultiVectorMultipleNegativesRankingLoss(model=_TokenizingModel(), mini_batch_size=2)
     merged_value = merged(_int_features()).item()
     chunked_value = chunked(_int_features()).item()
     with column_merging_disabled():
@@ -776,7 +775,7 @@ def test_margin_mse_accepts_raw_teacher_scores(num_negatives: int) -> None:
     raw_scores = torch.randn(batch, num_negatives + 1, generator=generator)
     margins = raw_scores[:, 0:1] - raw_scores[:, 1:]
 
-    loss = mve_losses.MultiVectorMarginMSELoss(model=_PassthroughModel())
+    loss = MultiVectorMarginMSELoss(model=_PassthroughModel())
     raw_value = loss(features, raw_scores).item()
     margin_value = loss(features, margins).item()
     assert raw_value == margin_value, f"raw-score labels diverged from margins: {raw_value} vs {margin_value}"
@@ -794,7 +793,7 @@ def test_margin_mse_accepts_1d_labels_for_single_negative() -> None:
     generator = torch.Generator().manual_seed(7)
     margins = torch.randn(batch, generator=generator)
 
-    loss = mve_losses.MultiVectorMarginMSELoss(model=_PassthroughModel())
+    loss = MultiVectorMarginMSELoss(model=_PassthroughModel())
     flat_value = loss(features, margins).item()
     column_value = loss(features, margins.unsqueeze(1)).item()
     assert flat_value == column_value, f"1D labels diverged from (batch, 1): {flat_value} vs {column_value}"
@@ -810,14 +809,14 @@ def test_margin_mse_rejects_mismatched_label_shape(label_shape: tuple[int, int])
         _make_feature(t_tokens=10, batch=batch, dim=dim, seed=2),
         _make_feature(t_tokens=12, batch=batch, dim=dim, seed=3),
     ]
-    loss = mve_losses.MultiVectorMarginMSELoss(model=_PassthroughModel())
+    loss = MultiVectorMarginMSELoss(model=_PassthroughModel())
     with pytest.raises(ValueError, match="negative columns"):
         loss(features, torch.randn(*label_shape))
 
 
 @pytest.mark.parametrize(
     "loss_class",
-    [mve_losses.MultiVectorMultipleNegativesRankingLoss, mve_losses.CachedMultiVectorMultipleNegativesRankingLoss],
+    [MultiVectorMultipleNegativesRankingLoss, CachedMultiVectorMultipleNegativesRankingLoss],
 )
 @pytest.mark.parametrize("scale", [0.0, -1.0])
 def test_mnr_rejects_non_positive_scale(loss_class: type[nn.Module], scale: float) -> None:
@@ -841,11 +840,11 @@ def test_margin_mse_accepts_xtr_pairwise_metric() -> None:
     generator = torch.Generator().manual_seed(11)
     margins = torch.randn(batch, generator=generator)
 
-    loss = mve_losses.MultiVectorMarginMSELoss(model=_PassthroughModel(), similarity_fct=xtr_scores_pairwise)
+    loss = MultiVectorMarginMSELoss(model=_PassthroughModel(), similarity_fct=xtr_scores_pairwise)
     assert torch.isfinite(loss(features, margins))
     assert loss.get_config_dict()["similarity_fct"] == "xtr_scores_pairwise"
 
-    default = mve_losses.MultiVectorMarginMSELoss(model=_PassthroughModel())
+    default = MultiVectorMarginMSELoss(model=_PassthroughModel())
     assert default.get_config_dict()["similarity_fct"] is None
 
 
@@ -856,7 +855,7 @@ def test_similarity_fct_config_renders_partial_bindings() -> None:
 
     from sentence_transformers.multi_vector_encoder.scoring import colbert_scores
 
-    loss = mve_losses.MultiVectorMultipleNegativesRankingLoss(
+    loss = MultiVectorMultipleNegativesRankingLoss(
         model=_PassthroughModel(), similarity_fct=partial(colbert_scores, length_normalize=True)
     )
     assert loss.get_config_dict()["similarity_fct"] == "colbert_scores(length_normalize=True)"
@@ -875,16 +874,12 @@ def test_distill_kl_div_separate_temperatures() -> None:
             _make_feature(t_tokens=5, batch=batch, dim=dim, seed=3),
         ]
 
-    shared = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel(), temperature=0.5)
+    shared = MultiVectorDistillKLDivLoss(model=_PassthroughModel(), temperature=0.5)
     shared_value = shared(build_features(), labels).item()
-    aliased = mve_losses.MultiVectorDistillKLDivLoss(
-        model=_PassthroughModel(), student_temperature=0.5, teacher_temperature=0.5
-    )
+    aliased = MultiVectorDistillKLDivLoss(model=_PassthroughModel(), student_temperature=0.5, teacher_temperature=0.5)
     assert aliased(build_features(), labels).item() == pytest.approx(shared_value)
 
-    split = mve_losses.MultiVectorDistillKLDivLoss(
-        model=_PassthroughModel(), student_temperature=0.5, teacher_temperature=2.0
-    )
+    split = MultiVectorDistillKLDivLoss(model=_PassthroughModel(), student_temperature=0.5, teacher_temperature=2.0)
     assert split(build_features(), labels).item() != pytest.approx(shared_value)
     assert split.get_config_dict() == {
         "similarity_fct": None,

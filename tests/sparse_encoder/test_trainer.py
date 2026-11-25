@@ -13,10 +13,14 @@ import torch
 from transformers import TrainerState
 
 from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments
-from sentence_transformers.sparse_encoder import losses
 from sentence_transformers.sparse_encoder.callbacks.splade_callbacks import (
     SchedulerType,
     SpladeRegularizerWeightSchedulerCallback,
+)
+from sentence_transformers.sparse_encoder.losses import (
+    CachedSpladeLoss,
+    SparseMultipleNegativesRankingLoss,
+    SpladeLoss,
 )
 from sentence_transformers.util import is_datasets_available, is_training_available
 
@@ -55,9 +59,9 @@ def test_model_card_reuse(splade_bert_tiny_model: SparseEncoder):
 
     SparseEncoderTrainer(
         model=model,
-        loss=losses.SpladeLoss(
+        loss=SpladeLoss(
             model=model,
-            loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+            loss=SparseMultipleNegativesRankingLoss(model=model),
             document_regularizer_weight=3e-5,
             query_regularizer_weight=5e-5,
         ),
@@ -92,9 +96,9 @@ def test_trainer(
 
     original_model_params = [p.clone() for p in model.parameters()]
 
-    loss = losses.SpladeLoss(
+    loss = SpladeLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        loss=SparseMultipleNegativesRankingLoss(model=model),
         document_regularizer_weight=3e-5,
         query_regularizer_weight=5e-5,
     )
@@ -197,9 +201,9 @@ def test_trainer_prompts(
         }
     )
 
-    loss = losses.SpladeLoss(
+    loss = SpladeLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        loss=SparseMultipleNegativesRankingLoss(model=model),
         document_regularizer_weight=3e-5,
         query_regularizer_weight=5e-5,
     )
@@ -453,9 +457,9 @@ def test_trainer_prompts(
 def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncoder, tmp_path: Path) -> None:
     model = splade_bert_tiny_model
     loss = {
-        name: losses.SpladeLoss(
+        name: SpladeLoss(
             model=model,
-            loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+            loss=SparseMultipleNegativesRankingLoss(model=model),
             document_regularizer_weight=3e-5,
             query_regularizer_weight=5e-5,
         )
@@ -484,14 +488,14 @@ def test_trainer_schedules_every_splade_loss(splade_bert_tiny_model: SparseEncod
 
 
 @pytest.mark.parametrize("as_dict", [False, True])
-@pytest.mark.parametrize("loss_type", [losses.SpladeLoss, losses.CachedSpladeLoss])
+@pytest.mark.parametrize("loss_type", [SpladeLoss, CachedSpladeLoss])
 def test_model_init_replaces_splade_schedulers(splade_bert_tiny_model, tmp_path, as_dict, loss_type):
     document_weight = 3e-5
 
     def loss_init(model, factor=1):
         return loss_type(
             model,
-            losses.SparseMultipleNegativesRankingLoss(model),
+            SparseMultipleNegativesRankingLoss(model),
             document_regularizer_weight=document_weight * factor,
         )
 
@@ -557,9 +561,7 @@ def test_model_init_with_custom_splade_scheduler(splade_bert_tiny_model, tmp_pat
         pass
 
     def loss_init(model):
-        return losses.SpladeLoss(
-            model, losses.SparseMultipleNegativesRankingLoss(model), document_regularizer_weight=3e-5
-        )
+        return SpladeLoss(model, SparseMultipleNegativesRankingLoss(model), document_regularizer_weight=3e-5)
 
     loss = {"first": loss_init, "second": loss_init} if loss_kind == "dict" else loss_init
     trainer = SparseEncoderTrainer(
@@ -594,9 +596,9 @@ def test_trainer_logs_eval_loss_components_under_the_metric_key_prefix(
     splade_bert_tiny_model: SparseEncoder, tmp_path: Path, during_training: bool
 ) -> None:
     model = splade_bert_tiny_model
-    loss = losses.SpladeLoss(
+    loss = SpladeLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        loss=SparseMultipleNegativesRankingLoss(model=model),
         document_regularizer_weight=3e-5,
         query_regularizer_weight=5e-5,
     )

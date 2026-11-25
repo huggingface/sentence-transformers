@@ -147,7 +147,8 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import CachedMultipleNegativesRankingLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -155,7 +156,7 @@ class CachedMultipleNegativesRankingLoss(CachedLossMixin, nn.Module):
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_size=64)
+                loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=64)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

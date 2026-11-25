@@ -81,7 +81,8 @@ class ADRMSELoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import ADRMSELoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -93,7 +94,7 @@ class ADRMSELoss(nn.Module):
                     ],
                     "scores": [[0.95, 0.1], [0.98, 0.92, 0.2]],
                 })
-                loss = losses.ADRMSELoss(model)
+                loss = ADRMSELoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,

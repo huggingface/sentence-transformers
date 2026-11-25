@@ -67,7 +67,8 @@ class SparseMarginMSELoss(MarginMSELoss):
 
                 from datasets import Dataset
 
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseMarginMSELoss, SpladeLoss
 
                 model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
                 train_dataset = Dataset.from_dict(
@@ -79,8 +80,8 @@ class SparseMarginMSELoss(MarginMSELoss):
                     }
                 )
 
-                loss = losses.SpladeLoss(
-                    model, losses.SparseMarginMSELoss(model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
+                loss = SpladeLoss(
+                    model, SparseMarginMSELoss(model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
                 )
 
                 trainer = SparseEncoderTrainer(model=model, train_dataset=train_dataset, loss=loss)
@@ -93,7 +94,8 @@ class SparseMarginMSELoss(MarginMSELoss):
 
                 from datasets import Dataset
 
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseMarginMSELoss, SpladeLoss
 
                 student_model = SparseEncoder("distilbert/distilbert-base-uncased")
                 teacher_model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
@@ -117,8 +119,8 @@ class SparseMarginMSELoss(MarginMSELoss):
 
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.SpladeLoss(
-                    student_model, losses.SparseMarginMSELoss(student_model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
+                loss = SpladeLoss(
+                    student_model, SparseMarginMSELoss(student_model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
                 )
 
                 trainer = SparseEncoderTrainer(model=student_model, train_dataset=train_dataset, loss=loss)
@@ -131,7 +133,8 @@ class SparseMarginMSELoss(MarginMSELoss):
                 import torch
                 from datasets import Dataset
 
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseMarginMSELoss, SpladeLoss
 
                 student_model = SparseEncoder("distilbert/distilbert-base-uncased")
                 teacher_model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
@@ -164,8 +167,8 @@ class SparseMarginMSELoss(MarginMSELoss):
 
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.SpladeLoss(
-                    student_model, loss=losses.SparseMarginMSELoss(student_model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
+                loss = SpladeLoss(
+                    student_model, loss=SparseMarginMSELoss(student_model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
                 )
 
                 trainer = SparseEncoderTrainer(model=student_model, train_dataset=train_dataset, loss=loss)

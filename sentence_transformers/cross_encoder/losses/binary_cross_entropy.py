@@ -54,7 +54,8 @@ class BinaryCrossEntropyLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -63,7 +64,7 @@ class BinaryCrossEntropyLoss(nn.Module):
                     "response": ["Pandas are a kind of bear.", "Pandas are a kind of fish."],
                     "label": [1, 0],
                 })
-                loss = losses.BinaryCrossEntropyLoss(model)
+                loss = BinaryCrossEntropyLoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,

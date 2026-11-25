@@ -5,7 +5,12 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from sentence_transformers.multi_vector_encoder import losses as mve_losses
+from sentence_transformers.multi_vector_encoder.losses import (
+    CachedMultiVectorMultipleNegativesRankingLoss,
+    MultiVectorDistillKLDivLoss,
+    MultiVectorMatryoshkaLoss,
+    MultiVectorMultipleNegativesRankingLoss,
+)
 from sentence_transformers.util import batch_to_device, maxsim, maxsim_pairwise
 
 DIM = 8
@@ -44,11 +49,11 @@ def _leaves(features: list[dict[str, Tensor]]) -> list[Tensor]:
 
 
 def _mnrl(model: nn.Module, **kwargs) -> nn.Module:
-    return mve_losses.MultiVectorMultipleNegativesRankingLoss(model=model, **kwargs)
+    return MultiVectorMultipleNegativesRankingLoss(model=model, **kwargs)
 
 
 def _cached_mnrl(model: nn.Module, **kwargs) -> nn.Module:
-    return mve_losses.CachedMultiVectorMultipleNegativesRankingLoss(
+    return CachedMultiVectorMultipleNegativesRankingLoss(
         model=model, mini_batch_size=2, show_progress_bar=False, **kwargs
     )
 
@@ -74,7 +79,7 @@ def test_full_dim_only_matches_wrapped_loss(build_inner) -> None:
     wrapped_features = _build_features()
     leaves = _leaves(wrapped_features)
     model = _NormalizeModel()
-    loss = mve_losses.MultiVectorMatryoshkaLoss(model, build_inner(model), matryoshka_dims=[DIM])
+    loss = MultiVectorMatryoshkaLoss(model, build_inner(model), matryoshka_dims=[DIM])
     value = loss(wrapped_features, None)
     value.backward()
 
@@ -92,7 +97,7 @@ def test_matryoshka_equals_manual_sum_of_truncated_losses(build_inner, use_gener
     wrapped_features = _build_features()
     leaves = _leaves(wrapped_features)
     model = _PassthroughModel()
-    loss = mve_losses.MultiVectorMatryoshkaLoss(
+    loss = MultiVectorMatryoshkaLoss(
         model, build_inner(model), matryoshka_dims=[DIM, DIM // 2], matryoshka_weights=weights
     )
     value = loss(iter(wrapped_features) if use_generator else wrapped_features, None)
@@ -126,13 +131,13 @@ def test_matryoshka_does_not_truncate_kd_labels() -> None:
     wrapped_features = _build_features()
     leaves = _leaves(wrapped_features)
     model = _PassthroughModel()
-    kd = mve_losses.MultiVectorDistillKLDivLoss(model=model)
-    loss = mve_losses.MultiVectorMatryoshkaLoss(model, kd, matryoshka_dims=[DIM, DIM // 2])
+    kd = MultiVectorDistillKLDivLoss(model=model)
+    loss = MultiVectorMatryoshkaLoss(model, kd, matryoshka_dims=[DIM, DIM // 2])
     value = loss(wrapped_features, labels)
     value.backward()
 
     manual_features = _build_features()
-    plain = mve_losses.MultiVectorDistillKLDivLoss(model=_PassthroughModel())
+    plain = MultiVectorDistillKLDivLoss(model=_PassthroughModel())
     manual_value = 0.0
     for dim in [DIM, DIM // 2]:
         truncated = [
@@ -153,37 +158,37 @@ def test_matryoshka_does_not_truncate_kd_labels() -> None:
 def test_empty_dims_raises() -> None:
     model = _PassthroughModel()
     with pytest.raises(ValueError, match="at least one dimension"):
-        mve_losses.MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[])
+        MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[])
 
 
 def test_non_positive_dim_raises() -> None:
     model = _PassthroughModel()
     with pytest.raises(ValueError, match="must be > 0"):
-        mve_losses.MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[8, 0])
+        MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[8, 0])
 
 
 def test_weights_length_mismatch_raises() -> None:
     model = _PassthroughModel()
     with pytest.raises(ValueError, match="same length"):
-        mve_losses.MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[8, 4], matryoshka_weights=[1.0])
+        MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[8, 4], matryoshka_weights=[1.0])
 
 
 def test_dim_exceeding_model_dim_raises() -> None:
     model = _PassthroughModel()
     with pytest.raises(ValueError, match="cannot exceed the model's embedding dimension of 8"):
-        mve_losses.MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[16, 8])
+        MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[16, 8])
 
 
 def test_missing_full_dim_warns(caplog) -> None:
     model = _PassthroughModel()
     with caplog.at_level("WARNING"):
-        mve_losses.MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[4, 2])
+        MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[4, 2])
     assert "is not included in matryoshka_dims" in caplog.text
 
 
 def test_dims_and_weights_sorted_descending() -> None:
     model = _PassthroughModel()
-    loss = mve_losses.MultiVectorMatryoshkaLoss(
+    loss = MultiVectorMatryoshkaLoss(
         model, _mnrl(model), matryoshka_dims=[2, 8, 4], matryoshka_weights=[0.25, 1.0, 0.5]
     )
     assert loss.matryoshka_dims == (8, 4, 2)
@@ -212,7 +217,7 @@ def test_matryoshka_on_a_real_model(mve_bert_tiny_model, build_inner, truncate_d
             ),
         ]
     ]
-    loss = mve_losses.MultiVectorMatryoshkaLoss(model, build_inner(model), matryoshka_dims=[dim, dim // 2])
+    loss = MultiVectorMatryoshkaLoss(model, build_inner(model), matryoshka_dims=[dim, dim // 2])
     assert model.truncate_dim == truncate_dim
     value = loss(features, None)
     assert torch.isfinite(value)
@@ -227,8 +232,8 @@ def test_validation_uses_untruncated_dimension(mve_bert_tiny_model, caplog) -> N
     dim = model.get_embedding_dimension()
     model.truncate_dim = dim // 2
     with pytest.raises(ValueError, match=f"cannot exceed the model's embedding dimension of {dim}"):
-        mve_losses.MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[dim + 1, dim // 2])
+        MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[dim + 1, dim // 2])
     with caplog.at_level("WARNING"):
-        mve_losses.MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[dim // 2])
+        MultiVectorMatryoshkaLoss(model, _mnrl(model), matryoshka_dims=[dim // 2])
     assert f"dimension {dim} is not included" in caplog.text
     assert model.truncate_dim == dim // 2
