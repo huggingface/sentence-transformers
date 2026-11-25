@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This application demonstrates how to find duplicate questions (paraphrases) in a long
 list of sentences.

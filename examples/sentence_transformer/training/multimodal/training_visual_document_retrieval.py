@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train,image]>=6.3.0",
+# ]
+# ///
 """
 This example shows how to finetune a multimodal Sentence Transformer model for document screenshot embedding
 using MatryoshkaLoss and CachedMultipleNegativesRankingLoss.
@@ -122,7 +128,7 @@ final_output_dir = f"models/{run_name}/final"
 model.save_pretrained(final_output_dir)
 
 # 9. (Optional) Push it to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 try:
     model.push_to_hub(run_name)
 except Exception:

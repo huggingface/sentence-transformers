@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+#     "nltk",
+# ]
+# ///
 import logging
 import random
 import traceback
@@ -171,7 +178,7 @@ final_output_dir = f"{output_dir}/final"
 model.save(final_output_dir)
 
 # 9. (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
 try:
     model.push_to_hub(f"{model_name}-tsdae-askubuntu")

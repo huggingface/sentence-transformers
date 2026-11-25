@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+#     "unsloth",
+# ]
+# ///
 import logging
 import sys
 import traceback
@@ -101,7 +108,7 @@ final_output_dir = f"models/{run_name}/final"
 model.save_pretrained(final_output_dir)
 
 # 9. (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 try:
     model.push_to_hub(run_name)
 except Exception:

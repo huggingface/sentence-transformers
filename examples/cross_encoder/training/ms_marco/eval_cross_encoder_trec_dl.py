@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+#     "pytrec-eval-terrier",
+# ]
+# ///
 """
 This file evaluates CrossEncoder on the TREC 2019 Deep Learning (DL) Track: https://huggingface.co/papers/2003.07820
 

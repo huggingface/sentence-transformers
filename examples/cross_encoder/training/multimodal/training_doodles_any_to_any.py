@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train,image]>=6.3.0",
+# ]
+# ///
 """
 This example trains a multimodal CrossEncoder reranker on the doodles-captions-manual dataset
 using a causal LM with LogitScore. LogitScore works by generating a single token
@@ -235,6 +241,7 @@ final_output_dir = f"models/{run_name}/final"
 model.save_pretrained(final_output_dir)
 
 # 10. (Optional) Push to Hub
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 try:
     model.push_to_hub(run_name)
 except Exception:

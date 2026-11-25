@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This script is identical to examples/sentence_transformer/training/sts/training_stsbenchmark.py with seed optimization.
 We apply early stopping and evaluate the models over the dev set, to find out the best performing seeds.
@@ -158,3 +164,9 @@ for seed in range(seed_count):
 
     # 9. Save the model for this seed
     model.save_pretrained(model_save_path)
+
+    # Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
+    try:
+        model.push_to_hub(f"{model_name.split('/')[-1]}-sts-seed-{seed}")
+    except Exception:
+        logging.exception("Could not upload the model. It is saved locally in %s.", model_save_path)

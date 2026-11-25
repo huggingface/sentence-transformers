@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This example uses average word embeddings (for example from GloVe). It adds two fully-connected feed-forward layers (dense layers) to create a Deep Averaging Network (DAN).
 
@@ -109,7 +115,7 @@ final_output_dir = f"{output_dir}/final"
 model.save(final_output_dir)
 
 # 9. (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = "glove-mean-pooling-sts"
 try:
     model.push_to_hub(model_name)

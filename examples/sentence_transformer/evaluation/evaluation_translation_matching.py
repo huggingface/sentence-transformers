@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 Given a dataset with parallel sentences, one "english" column and one "non_english" column, this script evaluates a model on the translation task.
 Given a sentence in the "english" column, the model should find the correct translation in the "non_english" column, based on just the embeddings.

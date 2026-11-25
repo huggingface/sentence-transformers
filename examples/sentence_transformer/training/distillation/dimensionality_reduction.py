@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 The pre-trained models produce embeddings of size 512 - 1024. However, when storing a large
 number of embeddings, this requires quite a lot of memory / storage.
@@ -83,12 +89,12 @@ logging.info(f"Model with {new_dimension} dimensions:")
 stsb_evaluator(model)
 
 
-# If you like, you can store the model on disk by uncommenting the following line
-model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
-model.save(f"{model_name}-128dim")
+model_name = model_name.split("/")[-1]
+final_output_dir = f"{model_name}-{new_dimension}dim"
+model.save_pretrained(final_output_dir)
 
-# You can then load the adapted model that produces 128 dimensional embeddings like this:
-# model = SentenceTransformer('models/my-128dim-model')
-
-# Or you can push the model to the Hugging Face Hub
-# model.push_to_hub(f'{model_name}-128dim')
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
+try:
+    model.push_to_hub(final_output_dir)
+except Exception:
+    logging.exception("Could not upload the model. It is saved locally in %s.", final_output_dir)

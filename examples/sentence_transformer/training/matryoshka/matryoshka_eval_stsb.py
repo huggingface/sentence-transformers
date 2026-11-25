@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+#     "matplotlib",
+# ]
+# ///
 """
 This script evaluates embedding models truncated at different dimensions on the STS
 benchmark.
@@ -156,7 +163,9 @@ if __name__ == "__main__":
             output_path = os.path.join(model_name, f"dim-{dim}")
             os.makedirs(output_path)
             test_evaluator.truncate_dim = dim
-            score = test_evaluator(model, output_path=output_path)
+            results = test_evaluator(model, output_path=output_path)
+            score = results[test_evaluator.primary_metric]
+            print(f"{model_name} ({dim} dimensions): {test_evaluator.primary_metric} = {score:.4f}")
             print(f"Saved results to {output_path}")
             dim_to_score[dim] = score
         model_name_to_dim_to_score[model_name] = dim_to_score

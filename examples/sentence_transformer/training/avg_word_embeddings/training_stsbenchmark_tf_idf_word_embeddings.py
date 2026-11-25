@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This example weights word embeddings (like GloVe) with IDF weights. The IDF weights can for example be computed on Wikipedia.
 
@@ -138,7 +144,7 @@ final_output_dir = f"{output_dir}/final"
 model.save(final_output_dir)
 
 # 9. (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = "glove-wikipedia-tf-idf"
 try:
     model.push_to_hub(model_name)

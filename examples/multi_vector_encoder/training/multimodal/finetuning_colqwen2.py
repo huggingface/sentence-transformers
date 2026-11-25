@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train,image]>=6.3.0",
+# ]
+# ///
 """
 This script demonstrates how to finetune a pretrained ColPali-style multi-vector (late-interaction) model for
 visual document retrieval: text queries are matched directly against document page images, skipping OCR entirely.
@@ -160,7 +166,7 @@ def main():
     model.save_pretrained(final_output_dir)
 
     # 9. (Optional) save the model to the Hugging Face Hub!
-    # It is recommended to run `hf auth login` to log into your Hugging Face account first
+    # Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
     try:
         model.push_to_hub(run_name)
     except Exception:
