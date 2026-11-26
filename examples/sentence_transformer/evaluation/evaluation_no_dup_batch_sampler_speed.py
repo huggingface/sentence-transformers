@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+#     "psutil",
+# ]
+# ///
 from __future__ import annotations
 
 """Benchmark NoDuplicates batch samplers on Hugging Face datasets.

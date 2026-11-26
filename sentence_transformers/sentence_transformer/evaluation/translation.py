@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -16,6 +14,7 @@ if TYPE_CHECKING:
 
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,9 +22,8 @@ class TranslationEvaluator(BaseEvaluator):
     """
     Given two sets of sentences in different languages, e.g. (en_1, en_2, en_3...) and (fr_1, fr_2, fr_3, ...),
     and assuming that fr_i is the translation of en_i.
-    Checks if vec(en_i) has the highest similarity to vec(fr_i). Computes the accuracy in both directions
-
-    The labels need to indicate the similarity between the sentences.
+    Checks whether the most similar sentence has the same text as the expected translation.
+    Computes accuracy in both directions.
 
     Args:
         source_sentences (List[str]): List of sentences in the source language.
@@ -89,7 +87,13 @@ class TranslationEvaluator(BaseEvaluator):
         self.print_wrong_matches = print_wrong_matches
         self.truncate_dim = truncate_dim
 
-        assert len(self.source_sentences) == len(self.target_sentences)
+        if len(self.source_sentences) != len(self.target_sentences):
+            raise ValueError(
+                f"source_sentences ({len(self.source_sentences)}) and target_sentences "
+                f"({len(self.target_sentences)}) must have the same length."
+            )
+        if len(self.source_sentences) == 0:
+            raise ValueError("TranslationEvaluator needs at least one source and target sentence pair.")
 
         if name:
             name = "_" + name
@@ -99,21 +103,9 @@ class TranslationEvaluator(BaseEvaluator):
         self.write_csv = write_csv
         self.primary_metric = "mean_accuracy"
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-
-        logger.info(f"Evaluating translation matching Accuracy of the model on the {self.name} dataset{out_txt}:")
-
         embeddings1 = torch.stack(self.embed_inputs(model, self.source_sentences))
         embeddings2 = torch.stack(self.embed_inputs(model, self.target_sentences))
 
@@ -125,7 +117,7 @@ class TranslationEvaluator(BaseEvaluator):
         for i in range(len(cos_sims)):
             max_idx = np.argmax(cos_sims[i])
 
-            if i == max_idx:
+            if self.target_sentences[i] == self.target_sentences[max_idx]:
                 correct_src2trg += 1
             elif self.print_wrong_matches:
                 print("\nIncorrect  : Source", i, "is most similar to target", max_idx, "instead of target", i)
@@ -141,7 +133,7 @@ class TranslationEvaluator(BaseEvaluator):
         cos_sims = cos_sims.T
         for i in range(len(cos_sims)):
             max_idx = np.argmax(cos_sims[i])
-            if i == max_idx:
+            if self.source_sentences[i] == self.source_sentences[max_idx]:
                 correct_trg2src += 1
 
         acc_src2trg = correct_src2trg / len(cos_sims)
@@ -150,25 +142,11 @@ class TranslationEvaluator(BaseEvaluator):
         logger.info(f"Accuracy src2trg: {acc_src2trg * 100:.2f}")
         logger.info(f"Accuracy trg2src: {acc_trg2src * 100:.2f}")
 
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow([epoch, steps, acc_src2trg, acc_trg2src])
-
-        metrics = {
+        return {
             "src2trg_accuracy": acc_src2trg,
             "trg2src_accuracy": acc_trg2src,
             "mean_accuracy": (acc_src2trg + acc_trg2src) / 2,
         }
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
 
     def embed_inputs(
         self,
@@ -190,3 +168,8 @@ class TranslationEvaluator(BaseEvaluator):
         if self.truncate_dim is not None:
             config_dict["truncate_dim"] = self.truncate_dim
         return config_dict
+
+    def _get_csv_value(self, header: str, metrics: dict[str, float]) -> float:
+        if header in ("src2trg", "trg2src"):
+            header += "_accuracy"
+        return metrics[header]

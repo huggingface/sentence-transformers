@@ -43,10 +43,8 @@ class SentenceTransformerTrainingArguments(BaseTrainingArguments):
             2. `Dict[str, Dict[str, str]]`: A mapping of dataset names to a mapping of column names to routes for
                multi-dataset training/evaluation.
         learning_rate_mapping (`Dict[str, float] | None`, *optional*):
-            A mapping of parameter name regular expressions to learning rates. This allows you to set different
-            learning rates for different parts of the model, e.g., `{'SparseStaticEmbedding\.*': 1e-3}` for the
-            SparseStaticEmbedding module. This is useful when you want to fine-tune specific parts of the model
-            with different learning rates.
+            A mapping of parameter name regular expressions to learning rates, e.g.,
+            `{r'sub_modules\.query\.': 1e-3}` for the query route of a Router.
     """
 
 

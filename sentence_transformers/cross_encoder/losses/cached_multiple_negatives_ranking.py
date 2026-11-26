@@ -105,7 +105,8 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import CachedMultipleNegativesRankingLoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -113,7 +114,7 @@ class CachedMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
                     "query": ["What are pandas?", "What is the capital of France?"],
                     "answer": ["Pandas are a kind of bear.", "The capital of France is Paris."],
                 })
-                loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_size=32)
+                loss = CachedMultipleNegativesRankingLoss(model, mini_batch_size=32)
 
                 trainer = CrossEncoderTrainer(
                     model=model,

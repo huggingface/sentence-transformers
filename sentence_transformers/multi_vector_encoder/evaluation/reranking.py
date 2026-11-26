@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config
+from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.sentence_transformer.evaluation.reranking import RerankingEvaluator
 
 if TYPE_CHECKING:
@@ -23,9 +25,12 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
     model rescores them.
 
     See :class:`~sentence_transformers.sentence_transformer.evaluation.RerankingEvaluator` for the full
-    argument list and the ``samples`` format. This subclass differs only by resolving the scoring from
-    the model at call time and encoding queries / documents asymmetrically (via ``encode_query`` /
-    ``encode_document``).
+    argument list and the ``samples`` format. This subclass encodes queries and documents
+    asymmetrically via ``encode_query`` and ``encode_document``, keeping each text's token
+    embeddings as a list of tensors. It passes each query to the model's multi-vector similarity
+    as a one-query batch, so its tokens are scored against every candidate document.
+    ``truncate_dim`` truncates and L2-normalizes token embeddings, while ``token_pooling`` applies
+    pooling according to the pooler's ``tasks``. When None, both use the model's encoding defaults.
 
     Example:
         ::
@@ -72,8 +77,11 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
         batch_size: int = 16,
         show_progress_bar: bool = False,
         use_batched_encoding: bool = True,
+        truncate_dim: int | None = None,
+        token_pooling: BaseTokenPooling | None = None,
     ) -> None:
         self._user_similarity_fct = similarity_fct
+        self.token_pooling = token_pooling
         super().__init__(
             samples=samples,
             at_k=at_k,
@@ -83,9 +91,10 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
             batch_size=batch_size,
             show_progress_bar=show_progress_bar,
             use_batched_encoding=use_batched_encoding,
+            truncate_dim=truncate_dim,
         )
 
-    def __call__(self, model: MultiVectorEncoder, *args, **kwargs) -> dict[str, float]:
+    def evaluate(self, model: MultiVectorEncoder, *args, **kwargs) -> dict[str, float]:
         if self._user_similarity_fct is None:
             # The parent calls similarity_fct(query_emb, docs_emb) with the query as a single token
             # matrix (batched path) or a length-1 list (per-sample path): normalise to a one-query
@@ -95,7 +104,7 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
                 return model.similarity(queries, document_embeddings)
 
             self.similarity_fct = one_to_many
-        return super().__call__(model, *args, **kwargs)
+        return super().evaluate(model, *args, **kwargs)
 
     def embed_inputs(
         self,
@@ -105,17 +114,24 @@ class MultiVectorRerankingEvaluator(RerankingEvaluator):
         show_progress_bar: bool | None = None,
         **kwargs,
     ) -> list[Tensor]:
-        # MultiVectorEncoder.encode returns a ragged list[Tensor] and does not accept truncate_dim.
-        kwargs.pop("truncate_dim", None)
+        kwargs.setdefault("truncate_dim", self.truncate_dim)
         if encode_fn_name == "query":
             encode_fn = model.encode_query
         elif encode_fn_name == "document":
             encode_fn = model.encode_document
         else:
             encode_fn = model.encode
-        return encode_fn(
+        embeddings = encode_fn(
             sentences,
             batch_size=self.batch_size,
             show_progress_bar=show_progress_bar,
+            token_pooling=self.token_pooling,
             **kwargs,
         )
+        return embeddings
+
+    def get_config_dict(self) -> dict[str, Any]:
+        config_dict = super().get_config_dict()
+        if self.token_pooling is not None:
+            config_dict["token_pooling"] = pooling_config(self.token_pooling)
+        return config_dict

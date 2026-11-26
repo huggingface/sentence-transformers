@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
-from typing import Any, ClassVar, Literal, overload
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, overload
 
 import numpy as np
 import torch
@@ -21,7 +22,11 @@ from sentence_transformers.sparse_encoder.model_card import SparseEncoderModelCa
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SpladePooling
 from sentence_transformers.util import batch_to_device, select_max_active_dims
 from sentence_transformers.util.decorators import deprecated_kwargs
+from sentence_transformers.util.misc import _to_list
 from sentence_transformers.util.similarity import SimilarityFunction
+
+if TYPE_CHECKING:
+    from transformers import KernelConfig
 
 # NOTE: transformers wraps the regular logging module for e.g. warning_once
 logger = transformers_logging.get_logger(__name__)
@@ -32,9 +37,9 @@ class SparseEncoder(BaseModel):
     Loads or creates a SparseEncoder model that can be used to map text to sparse embeddings.
 
     Args:
-        model_name_or_path (str, optional): If a filepath on disk, loads the model from that path. Otherwise, tries
-            to download a pre-trained SparseEncoder model. If that fails, tries to construct a model from the
-            Hugging Face Hub with that name. Defaults to None.
+        model_name_or_path (str or Path, optional): If a filepath on disk, loads the model from that path. Otherwise,
+            tries to download a pre-trained SparseEncoder model. If that fails, tries to construct a model
+            from the Hugging Face Hub with that name. Defaults to None.
         modules (list[nn.Module], optional): A list of torch modules that are called sequentially. Can be used to
             create custom SparseEncoder models from scratch. Defaults to None.
         device (str, optional): Device (like ``"cuda"``, ``"cpu"``, ``"mps"``, ``"npu"``) that should be used for
@@ -56,8 +61,13 @@ class SparseEncoder(BaseModel):
             commit id, for a stored model on Hugging Face. Defaults to None.
         local_files_only (bool, optional): Whether to only look at local files (i.e., do not try to download
             the model). Defaults to False.
-        token (bool or str, optional): Hugging Face authentication token to download private models.
-            Defaults to None.
+        token (bool or str, optional): Hugging Face authentication token for higher Hub rate limits and access to
+            private or gated models your account can read. Defaults to None, which uses ``HF_TOKEN`` or
+            credentials saved with ``hf auth login``, if available.
+        use_kernels (bool, optional): Enable the default backbone kernels supported by the model and device.
+            Requires the torch backend and compatible kernel dependencies. Defaults to False.
+        kernel_config (KernelConfig, optional): Override backbone kernel mappings. Providing a configuration
+            also enables kernels. These settings are runtime-only. Defaults to None.
         model_kwargs (dict[str, Any], optional): Keyword arguments passed to the underlying Hugging Face
             Transformers model via ``AutoModel.from_pretrained``. Particularly useful options include:
 
@@ -99,9 +109,8 @@ class SparseEncoder(BaseModel):
             Valid options are ``"cosine"``, ``"dot"``, ``"euclidean"``, and ``"manhattan"``. If not set, it is
             automatically set to ``"cosine"`` when :meth:`similarity` or :meth:`similarity_pairwise` are first
             called. Defaults to None.
-        max_active_dims (int, optional): The maximum number of active (non-zero) dimensions in the output of the
-            model. ``None`` means no limit, which can be slow or memory-intensive if your model wasn't (yet)
-            finetuned to high sparsity. Defaults to None.
+        max_active_dims (int, optional): Maximum number of active (non-zero) output dimensions. Can be overridden during
+            encoding and is saved and loaded with the model. Defaults to None (use the model's default).
 
     Example:
         ::
@@ -145,7 +154,7 @@ class SparseEncoder(BaseModel):
     @deprecated_kwargs(tokenizer_kwargs="processor_kwargs")
     def __init__(
         self,
-        model_name_or_path: str | None = None,
+        model_name_or_path: str | Path | None = None,
         *,
         modules: list[nn.Module] | None = None,
         device: str | None = None,
@@ -159,14 +168,20 @@ class SparseEncoder(BaseModel):
         model_kwargs: dict[str, Any] | None = None,
         processor_kwargs: dict[str, Any] | None = None,
         config_kwargs: dict[str, Any] | None = None,
+        use_kernels: bool = False,
+        kernel_config: KernelConfig | None = None,
         model_card_data: SparseEncoderModelCardData | None = None,
         backend: Literal["torch", "onnx", "openvino"] = "torch",
         # SparseEncoder-specific args
         similarity_fn_name: str | SimilarityFunction | None = None,
         max_active_dims: int | None = None,
     ) -> None:
+        if isinstance(model_name_or_path, Path):
+            model_name_or_path = str(model_name_or_path)
+
         # Set before super().__init__() so _parse_model_config can check these
         self.similarity_fn_name = similarity_fn_name
+        self.max_active_dims = max_active_dims
 
         super().__init__(
             model_name_or_path=model_name_or_path,
@@ -178,6 +193,8 @@ class SparseEncoder(BaseModel):
             local_files_only=local_files_only,
             token=token,
             model_kwargs=model_kwargs,
+            use_kernels=use_kernels,
+            kernel_config=kernel_config,
             processor_kwargs=processor_kwargs,
             config_kwargs=config_kwargs,
             model_card_data=model_card_data,
@@ -188,14 +205,22 @@ class SparseEncoder(BaseModel):
         # Narrow the type from BaseModelCardData
         self.model_card_data: SparseEncoderModelCardData
 
-        if max_active_dims is not None and max_active_dims <= 0:
-            raise ValueError(f"max_active_dims must be a positive integer, got {max_active_dims}.")
-        self.max_active_dims = max_active_dims
-        if max_active_dims is None:
+        if self.max_active_dims is not None and (
+            isinstance(self.max_active_dims, bool)
+            or not isinstance(self.max_active_dims, int)
+            or self.max_active_dims <= 0
+        ):
+            raise ValueError(f"max_active_dims must be a positive integer, got {self.max_active_dims}.")
+        if self.max_active_dims is None:
             for module in self._modules.values():
                 if isinstance(module, SparseAutoEncoder):
                     self.max_active_dims = module.k
                     break
+
+    def get_device_name(self) -> str:
+        """Select the default device, using CPU when Neuron or HPU is detected."""
+        device = super().get_device_name()
+        return "cpu" if device.startswith(("neuron", "hpu")) else device
 
     # Ordered overloads: the first match wins, so the all-defaults signatures come first and the
     # convert_to_tensor=False deviation pins its flag as a required keyword.
@@ -295,8 +320,8 @@ class SparseEncoder(BaseModel):
 
         This method is a specialized version of :meth:`encode` that differs in exactly two ways:
 
-        1. If no ``prompt_name`` or ``prompt`` is provided, it uses a predefined "query" prompt,
-           if available in the model's ``prompts`` dictionary.
+        1. If no ``prompt_name`` or ``prompt`` is provided, it uses the ``"query"`` prompt from the model's
+           ``prompts`` dictionary. This defaults to an empty string, which prevents fallback to ``default_prompt_name``.
         2. It sets the ``task`` to "query". If the model has a :class:`~sentence_transformers.base.modules.Router`
            module, it will use the "query" task type to route the input through the appropriate submodules.
 
@@ -690,8 +715,8 @@ class SparseEncoder(BaseModel):
         if is_singular_input:
             inputs = [inputs]
         elif not isinstance(inputs, list):
-            # Materialize e.g. datasets.Column to avoid slow Arrow deserialization on each index
-            inputs = inputs.tolist() if isinstance(inputs, np.ndarray) else list(inputs)
+            materialized: list[TextInput] = _to_list(inputs)
+            inputs = materialized
 
         # Throw an error if unused kwargs are passed, except 'task' which is always allowed, even
         # when it does not do anything (as e.g. there's no Router module in the model)
@@ -800,9 +825,12 @@ class SparseEncoder(BaseModel):
         return all_embeddings
 
     def _get_model_config(self) -> dict[str, Any]:
-        return super()._get_model_config() | {
+        config = super()._get_model_config() | {
             "similarity_fn_name": self._similarity_fn_name,
         }
+        if self.max_active_dims is not None:
+            config["max_active_dims"] = self.max_active_dims
+        return config
 
     def _parse_model_config(self, model_config: dict[str, Any]) -> None:
         super()._parse_model_config(model_config)
@@ -811,6 +839,8 @@ class SparseEncoder(BaseModel):
         saved_similarity = model_config.get("similarity_fn_name")
         if self._similarity_fn_name is None and saved_similarity in self.SUPPORTED_SIMILARITY_FN_NAMES:
             self.similarity_fn_name = saved_similarity
+        if self.max_active_dims is None:
+            self.max_active_dims = model_config.get("max_active_dims", None)
 
     @property
     def similarity_fn_name(self) -> Literal["cosine", "dot", "euclidean", "manhattan"]:
@@ -1006,7 +1036,6 @@ class SparseEncoder(BaseModel):
             model_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the model. Defaults to None.
             processor_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the processor/tokenizer. Defaults to None.
             config_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments for the config. Defaults to None.
-            has_modules (bool, optional): Whether the model has modules.json. Defaults to False.
 
         Returns:
             tuple[list[nn.Module], dict[str, Any]]: The modules and an empty kwargs dict.
@@ -1304,9 +1333,8 @@ class SparseEncoder(BaseModel):
         """
         Compute the intersection of two sparse embeddings via element-wise multiplication.
 
-        For each dimension, the result retains the minimum contribution from both embeddings, keeping only
-        dimensions where both inputs are positive (i.e., shared active dimensions). This is useful for
-        token-level matching and interpretability when combined with :meth:`decode`.
+        Only dimensions with a positive element-wise product are retained. This is useful for token-level matching
+        and interpretability when combined with :meth:`decode`.
 
         Args:
             embeddings_1 (torch.Tensor): First embedding tensor of shape ``(vocab_size,)``.
@@ -1343,8 +1371,11 @@ class SparseEncoder(BaseModel):
 
         if embeddings_2.ndim == 1:
             intersection = embeddings_1 * embeddings_2
+        elif embeddings_2.ndim == 2 and embeddings_2.sparse_dim() == 2 and embeddings_1.sparse_dim() == 1:
+            # Densify only the query to broadcast across the sparse document batch.
+            intersection = embeddings_1.to_dense() * embeddings_2
         elif embeddings_2.ndim == 2:
-            # Element-wise multiplication per row. Python loop is required as sparse broadcasting is limited
+            # Hybrid COO tensors store a dense block per index.
             intersection = torch.stack([embeddings_1 * embedding for embedding in embeddings_2])
         else:
             raise ValueError(f"Expected 1D or 2D tensor for embeddings_2, but got {embeddings_2.shape} shape.")
@@ -1357,6 +1388,7 @@ class SparseEncoder(BaseModel):
             intersection.values()[active_dims],
             size=intersection.size(),
             device=intersection.device,
+            is_coalesced=True,
         )
 
         return intersection
@@ -1396,7 +1428,7 @@ class SparseEncoder(BaseModel):
         if not embeddings.is_sparse:
             embeddings = embeddings.to_sparse()
 
-        embeddings = embeddings.coalesce()
+        embeddings = embeddings.coalesce().cpu()
         indices = embeddings.indices()
         values = embeddings.values()
 
@@ -1408,6 +1440,7 @@ class SparseEncoder(BaseModel):
         sample_counts = torch.bincount(sample_indices, minlength=embeddings.size(0)).tolist()
 
         results = []
+        tokenizer = self.tokenizer
         start_idx = 0
         for count in sample_counts:
             if count == 0:
@@ -1417,17 +1450,13 @@ class SparseEncoder(BaseModel):
             sample_values = values[start_idx : start_idx + count]
             sample_tokens = token_indices[start_idx : start_idx + count]
 
-            effective_k = min(top_k, count) if top_k is not None else count
-            if effective_k < count:
-                top_values, top_idx = torch.topk(sample_values, effective_k)
-                sample_tokens = sample_tokens[top_idx]
-                sample_values = top_values
+            if top_k is not None and top_k < count:
+                sample_values, sorted_idx = torch.topk(sample_values, top_k)
             else:
                 sorted_idx = torch.argsort(sample_values, descending=True)
                 sample_values = sample_values[sorted_idx]
-                sample_tokens = sample_tokens[sorted_idx]
 
-            token_strs = self.tokenizer.convert_ids_to_tokens(sample_tokens.tolist())
+            token_strs = tokenizer.convert_ids_to_tokens(sample_tokens[sorted_idx].tolist())
             results.append(list(zip(token_strs, sample_values.tolist())))
 
             start_idx += count
@@ -1461,5 +1490,5 @@ print(similarities)
 
 ---
 *This PR was auto-generated with \
-[`push_to_hub`](https://sbert.net/docs/package_reference/sparse_encoder/SparseEncoder.html#sentence_transformers.sparse_encoder.SparseEncoder.push_to_hub).*
+[`push_to_hub`](https://sbert.net/docs/package_reference/sparse_encoder/model.html#sentence_transformers.sparse_encoder.model.SparseEncoder.push_to_hub).*
 """

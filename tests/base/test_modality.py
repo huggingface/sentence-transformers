@@ -432,8 +432,9 @@ class TestInputFormatterInit:
 
 
 class TestInferFormat:
-    def test_known_model_type(self):
-        fmt = InputFormatter(model_type="apertus", message_format="structured")
+    @pytest.mark.parametrize("model_type", ["apertus", "minicpm3"])
+    def test_known_model_type(self, model_type):
+        fmt = InputFormatter(model_type=model_type, message_format="structured")
         assert fmt._infer_format(None) == "flat"
 
     def test_structured_template_with_type_pattern(self):

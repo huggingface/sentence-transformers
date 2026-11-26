@@ -36,7 +36,8 @@ class CrossEntropyLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import CrossEntropyLoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base", num_labels=2)
@@ -45,7 +46,7 @@ class CrossEntropyLoss(nn.Module):
                     "sentence2": ["What should I do to be a great geologist?", "What is the capital of Germany?"],
                     "label": [1, 0],  # 1: duplicate, 0: not duplicate
                 })
-                loss = losses.CrossEntropyLoss(model)
+                loss = CrossEntropyLoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,
@@ -78,5 +79,7 @@ class CrossEntropyLoss(nn.Module):
         tokens = batch_to_device(tokens, self.model.device)
         logits = self.model(tokens)["scores"]
         logits = self.activation_fn(logits)
+        if not labels.is_floating_point() and labels.shape == (logits.shape[0], 1):
+            labels = labels.view(-1)
         loss = self.ce_loss(logits, labels)
         return loss

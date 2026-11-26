@@ -12,9 +12,25 @@ import pytest
 import torch
 
 from sentence_transformers.sentence_transformer.modules import Pooling
+from sentence_transformers.sparse_encoder.losses import SparseMatryoshkaLoss, SparseMultipleNegativesRankingLoss
 from sentence_transformers.sparse_encoder.model import SparseEncoder
 from sentence_transformers.sparse_encoder.modules import Router, SparseAutoEncoder, SpladePooling, Transformer
 from sentence_transformers.util.similarity import SimilarityFunction
+
+
+@pytest.mark.parametrize("inference_device", ["cpu", "cuda"], indirect=True)
+def test_to(splade_bert_tiny_model: SparseEncoder, inference_device: str) -> None:
+    model = splade_bert_tiny_model.cpu()
+    model.to(inference_device)
+    assert model.device.type == inference_device
+
+    embeddings = model.encode(["Hello world"])
+    assert embeddings.is_sparse
+    assert embeddings.shape == (1, model.get_embedding_dimension())
+    assert embeddings.device.type == inference_device
+
+    model.cpu()
+    assert model.device.type == "cpu"
 
 
 @pytest.mark.parametrize(
@@ -318,7 +334,13 @@ def test_max_active_dims_set_init(splade_bert_tiny_model: SparseEncoder, csr_ber
     splade_bert_tiny_model.save_pretrained(str(tmp_path / "splade_bert_tiny"))
     csr_bert_tiny_model.save_pretrained(str(tmp_path / "csr_bert_tiny"))
 
-    # Load the models with max_active_dims set
+    config_path = tmp_path / "splade_bert_tiny" / "config_sentence_transformers.json"
+    assert "max_active_dims" not in json.loads(config_path.read_text())
+    config_path = tmp_path / "csr_bert_tiny" / "config_sentence_transformers.json"
+    config = json.loads(config_path.read_text())
+    config.pop("max_active_dims", None)
+    config_path.write_text(json.dumps(config))
+
     loaded_model = SparseEncoder(str(tmp_path / "splade_bert_tiny"))
     assert loaded_model.max_active_dims is None
     loaded_model = SparseEncoder(str(tmp_path / "splade_bert_tiny"), max_active_dims=13)
@@ -328,6 +350,59 @@ def test_max_active_dims_set_init(splade_bert_tiny_model: SparseEncoder, csr_ber
     assert loaded_model.max_active_dims == 16  # Based on the SparseAutoEncoder's k value
     loaded_model = SparseEncoder(str(tmp_path / "csr_bert_tiny"), max_active_dims=13)
     assert loaded_model.max_active_dims == 13
+
+
+@pytest.mark.parametrize("model_fixture", ["splade_bert_tiny_model", "csr_bert_tiny_model"])
+@pytest.mark.parametrize("override", [None, 7])
+def test_max_active_dims_save_load(model_fixture: str, override: int | None, request: pytest.FixtureRequest, tmp_path):
+    model = request.getfixturevalue(model_fixture)
+    model.max_active_dims = 13
+    model.save_pretrained(str(tmp_path), create_model_card=False)
+    config = json.loads((tmp_path / "config_sentence_transformers.json").read_text())
+    assert config["max_active_dims"] == 13
+
+    loaded_model = SparseEncoder(str(tmp_path), max_active_dims=override)
+    expected_limit = override if override is not None else 13
+    assert loaded_model.max_active_dims == expected_limit
+    texts = ["The weather is nice!", "Plants use sunlight to make food."]
+    embeddings = loaded_model.encode(texts, convert_to_sparse_tensor=False)
+    expected = model.encode(texts, max_active_dims=expected_limit, convert_to_sparse_tensor=False)
+    torch.testing.assert_close(embeddings, expected)
+    assert (torch.count_nonzero(embeddings, dim=-1) <= expected_limit).all()
+
+
+def test_csr_max_active_dims_override_saved_limit(csr_bert_tiny_model: SparseEncoder, tmp_path):
+    model = csr_bert_tiny_model
+    model.max_active_dims = 13
+    model.save_pretrained(str(tmp_path), create_model_card=False)
+    loaded_model = SparseEncoder(str(tmp_path))
+    assert loaded_model.max_active_dims == 13
+    assert loaded_model[-1].k == 16
+
+    texts = ["The weather is nice!", "Plants use sunlight to make food."]
+    embeddings = loaded_model.encode(texts, max_active_dims=32, convert_to_sparse_tensor=False)
+    expected = model.encode(texts, max_active_dims=32, convert_to_sparse_tensor=False)
+    torch.testing.assert_close(embeddings, expected)
+    assert (torch.count_nonzero(embeddings, dim=-1) == 32).all()
+    assert loaded_model.max_active_dims == 13
+
+
+@pytest.mark.parametrize("max_active_dims", [0, -1, 1.5, "1", True, False])
+@pytest.mark.parametrize("from_config", [False, True])
+def test_max_active_dims_invalid(max_active_dims: int | float | str, from_config: bool, tmp_path):
+    if from_config:
+        model = SparseEncoder(modules=[SpladePooling()])
+        model.save_pretrained(str(tmp_path), create_model_card=False)
+        config_path = tmp_path / "config_sentence_transformers.json"
+        config = json.loads(config_path.read_text())
+        config["max_active_dims"] = max_active_dims
+        config_path.write_text(json.dumps(config))
+        kwargs = {"model_name_or_path": str(tmp_path)}
+    else:
+        kwargs = {"modules": [SpladePooling()], "max_active_dims": max_active_dims}
+
+    with pytest.raises(ValueError, match="max_active_dims must be a positive integer"):
+        SparseEncoder(**kwargs)
 
 
 def test_detect_mlm():
@@ -379,6 +454,35 @@ def test_splade_pooling_chunk_size(splade_bert_tiny_model: SparseEncoder):
     assert model.splade_pooling_chunk_size == 13
     assert isinstance(model[1], SpladePooling)
     assert model[1].chunk_size == 13
+
+
+def test_get_embedding_dimension_before_first_forward(splade_bert_tiny_model: SparseEncoder) -> None:
+    model = SparseEncoder(modules=[splade_bert_tiny_model[0], SpladePooling()])
+    assert model[1].embedding_dimension is None
+    embedding_dimension = model.get_embedding_dimension()
+
+    SparseMatryoshkaLoss(model, SparseMultipleNegativesRankingLoss(model), max_active_dims=[None, 256, 128, 64])
+
+    embeddings = model.encode(["The weather is lovely today."])
+    assert embedding_dimension == model.get_embedding_dimension() == embeddings.shape[-1] == 30522
+
+
+@pytest.mark.parametrize("inference_device", ["cpu", "cuda"], indirect=True)
+def test_batched_intersection(inference_device: str) -> None:
+    query = torch.sparse_coo_tensor([[3, 1, 3]], [1.0, 2.0, 3.0], (8,), device=inference_device)
+    docs = torch.sparse_coo_tensor(
+        [[2, 0, 0, 0, 2], [7, 1, 1, 3, 1]], [3.0, 2.0, 1.0, -1.0, 0.0], (3, 8), device=inference_device
+    )
+    for query_input in (query, torch.zeros_like(query)):
+        result = SparseEncoder.intersection(query_input, docs).coalesce()
+        expected = (query_input.to_dense() * docs.to_dense()).clamp_min(0).to_sparse().coalesce()
+        torch.testing.assert_close(result.indices(), expected.indices())
+        torch.testing.assert_close(result.values(), expected.values())
+
+    empty_batch = torch.empty(0, 8, device=inference_device).to_sparse()
+    result = SparseEncoder.intersection(query, empty_batch)
+    assert result.shape == (0, 8)
+    assert result._nnz() == 0
 
 
 def test_intersection(splade_bert_tiny_model: SparseEncoder):

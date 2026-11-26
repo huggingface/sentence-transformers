@@ -54,7 +54,8 @@ class BinaryCrossEntropyLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -63,7 +64,7 @@ class BinaryCrossEntropyLoss(nn.Module):
                     "response": ["Pandas are a kind of bear.", "Pandas are a kind of fish."],
                     "label": [1, 0],
                 })
-                loss = losses.BinaryCrossEntropyLoss(model)
+                loss = BinaryCrossEntropyLoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,
@@ -104,6 +105,13 @@ class BinaryCrossEntropyLoss(nn.Module):
         outputs = self.model(inputs)
         logits = outputs["scores"].view(-1)
         logits = self.activation_fn(logits)
+        batch_size = logits.shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
+        labels = labels.view(-1)
         loss = self.bce_with_logits_loss(logits, labels.float())
         return loss
 

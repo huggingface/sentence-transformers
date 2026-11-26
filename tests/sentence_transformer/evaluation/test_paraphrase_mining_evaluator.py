@@ -5,6 +5,7 @@ Tests the correct computation of evaluation scores from BinaryClassificationEval
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -16,11 +17,9 @@ from sentence_transformers.sentence_transformer.evaluation import ParaphraseMini
 from sentence_transformers.sentence_transformer.modules import BoW
 
 
-def test_ParaphraseMiningEvaluator(
-    paraphrase_distilroberta_base_v1_model: SentenceTransformer, tmp_path: Path
-) -> None:
+def test_ParaphraseMiningEvaluator(stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path) -> None:
     """Tests that the ParaphraseMiningEvaluator can be loaded"""
-    model = paraphrase_distilroberta_base_v1_model
+    model = stsb_bert_tiny_model
     sentences = {
         0: "Hello World",
         1: "Hello World!",
@@ -62,6 +61,27 @@ def test_add_transitive_closure_flag_still_expands_duplicates() -> None:
     assert with_closure.total_num_duplicates == 3
 
 
+@pytest.mark.parametrize("non_duplicate_id", ["a", "c"])
+def test_add_transitive_closure_ignores_non_duplicate_pairs(non_duplicate_id: str) -> None:
+    sentences = {
+        "a": "Hello World",
+        "b": "Hello World!",
+        "c": "Hello, World!",
+        "d": "The cat is on the table",
+    }
+    duplicates = defaultdict(lambda: defaultdict(bool))
+    duplicates["a"]["b"] = duplicates["b"]["a"] = True
+    duplicates["b"]["c"] = duplicates["c"]["b"] = True
+    duplicates[non_duplicate_id]["d"] = duplicates["d"][non_duplicate_id] = False
+    evaluator = ParaphraseMiningEvaluator(sentences, duplicates_dict=duplicates, add_transitive_closure=True)
+    assert evaluator.total_num_duplicates == 3
+    assert evaluator.duplicates["a"]["c"]
+    assert evaluator.duplicates["c"]["a"]
+    for id in ("a", "b", "c"):
+        assert not evaluator.duplicates[id]["d"]
+        assert not evaluator.duplicates["d"][id]
+
+
 @pytest.mark.parametrize("duplicate_pair", [("a", "b"), ("a", "c"), ("b", "c")])
 def test_tied_scores_have_attainable_metrics(duplicate_pair: tuple[str, str]) -> None:
     model = SentenceTransformer(modules=[BoW(["same"])], device="cpu")
@@ -89,3 +109,48 @@ def test_mixed_score_groups_match_threshold_metrics() -> None:
     assert metrics["average_precision"] == pytest.approx(average_precision_score(labels, scores))
     assert metrics["f1"] == pytest.approx(max(f1_score(labels, scores >= threshold) for threshold in scores))
     assert metrics["f1"] == pytest.approx(f1_score(labels, scores >= metrics["threshold"]))
+
+
+@pytest.mark.parametrize("similarity_fn_name", ["cosine", "dot", "euclidean", "manhattan"])
+def test_ParaphraseMiningEvaluator_uses_model_similarity(similarity_fn_name: str) -> None:
+    """Candidate pairs are scored with the model's similarity function, not always cosine."""
+    model = SentenceTransformer(
+        modules=[BoW(["red", "blue", "green"])], similarity_fn_name=similarity_fn_name, device="cpu"
+    )
+    texts = {"a": "red", "b": "red red red blue", "c": "blue green", "d": "green", "e": "red blue green"}
+    duplicates = [("a", "b"), ("c", "d")]
+    evaluator = ParaphraseMiningEvaluator(texts, duplicates_list=duplicates, write_csv=False)
+    metrics = evaluator(model)
+
+    embeddings = model.encode(list(texts.values()), convert_to_tensor=True)
+    scores_matrix = model.similarity(embeddings, embeddings)
+    keys = list(texts)
+    pairs = [(i, j) for i in range(len(keys)) for j in range(i + 1, len(keys))]
+    labels = np.array([(keys[i], keys[j]) in duplicates for i, j in pairs])
+    scores = np.array([scores_matrix[i, j].item() for i, j in pairs])
+    assert metrics["average_precision"] == pytest.approx(average_precision_score(labels, scores))
+
+
+@pytest.mark.parametrize("add_transitive_closure", [False, True])
+def test_duplicates_dict_accepts_plain_dict(add_transitive_closure: bool) -> None:
+    model = SentenceTransformer(modules=[BoW(["red", "blue"])], device="cpu")
+    texts = {"a": "red", "b": "red", "c": "blue", "d": "red blue"}
+    duplicates = {"a": {"b": True}, "b": {"a": True}}
+    evaluator = ParaphraseMiningEvaluator(
+        texts,
+        duplicates_list=[("b", "c")],
+        duplicates_dict=duplicates,
+        add_transitive_closure=add_transitive_closure,
+        write_csv=False,
+    )
+    assert evaluator.total_num_duplicates == (3 if add_transitive_closure else 2)
+
+    metrics = evaluator(model)
+    expected = ParaphraseMiningEvaluator(
+        texts,
+        duplicates_list=[("a", "b"), ("b", "c")],
+        add_transitive_closure=add_transitive_closure,
+        write_csv=False,
+    )(model)
+    assert metrics == pytest.approx(expected)
+    assert duplicates == {"a": {"b": True}, "b": {"a": True}}

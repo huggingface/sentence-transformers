@@ -27,8 +27,11 @@ class RankNetLoss(LambdaLoss):
 
         Args:
             model (CrossEncoder): CrossEncoder model to be trained
+            k (int, optional): Cutoff for selecting document pairs. A pair contributes to the loss if at least one
+                document is in the model's top K. Defaults to None (use all documents).
             sigma (float): Score difference weight used in sigmoid (default: 1.0)
             eps (float): Small constant for numerical stability (default: 1e-10)
+            reduction_log (str): Type of logarithm to use, either "natural" (log) or "binary" (log2).
             activation_fn (:class:`~torch.nn.Module`): Activation function applied to the logits before computing the
                 loss. Defaults to :class:`~torch.nn.Identity`.
             mini_batch_size (int, optional): Number of samples to process in each forward pass. This has a significant
@@ -67,7 +70,8 @@ class RankNetLoss(LambdaLoss):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import RankNetLoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -79,7 +83,7 @@ class RankNetLoss(LambdaLoss):
                     ],
                     "labels": [[1, 0], [1, 1, 0]],
                 })
-                loss = losses.RankNetLoss(model)
+                loss = RankNetLoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,

@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This script combines training_online_contrastive_loss.py with training_multiple_negatives_ranking_loss.py
 
@@ -23,11 +29,7 @@ from datetime import datetime
 from datasets import load_dataset
 
 from sentence_transformers import SentenceTransformer
-from sentence_transformers.base.training_args import (
-    BatchSamplers,
-    MultiDatasetBatchSamplers,
-    SentenceTransformerTrainingArguments,
-)
+from sentence_transformers.base.sampler import BatchSamplers, MultiDatasetBatchSamplers
 from sentence_transformers.sentence_transformer.evaluation import (
     BinaryClassificationEvaluator,
     InformationRetrievalEvaluator,
@@ -36,6 +38,7 @@ from sentence_transformers.sentence_transformer.evaluation import (
 )
 from sentence_transformers.sentence_transformer.losses import ContrastiveLoss, MultipleNegativesRankingLoss
 from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 # Set the log level to INFO to get more information
 logging.basicConfig(format="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
@@ -198,7 +201,7 @@ final_output_dir = f"{output_dir}/final"
 model.save(final_output_dir)
 
 # (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
 try:
     model.push_to_hub(f"{model_name}-mnrl-cl-multi")

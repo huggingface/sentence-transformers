@@ -147,8 +147,7 @@ class SparseStaticEmbedding(InputModule):
         token_ids = tokenizer.convert_tokens_to_ids(list(tokens))
         weights = torch.tensor(weights, dtype=torch.float32)
 
-        max_token_id = max(token_ids) + 1
-        weight = torch.zeros(max_token_id, dtype=torch.float32)
+        weight = torch.zeros(len(tokenizer.get_vocab()), dtype=torch.float32)
         for token_id, w in zip(token_ids, weights):
             weight[token_id] = w
 
@@ -206,7 +205,7 @@ class SparseStaticEmbedding(InputModule):
                 path,
                 tokenizer,
                 token=token,
-                cache_dir=cache_folder,
+                cache_folder=cache_folder,
                 revision=revision,
                 local_files_only=local_files_only,
                 **config,

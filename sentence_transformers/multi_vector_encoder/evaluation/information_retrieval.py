@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
 from transformers.utils import logging as transformers_logging
 
+from sentence_transformers.multi_vector_encoder.evaluation.utils import pooling_config
+from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.sentence_transformer.evaluation.information_retrieval import (
     InformationRetrievalEvaluator,
 )
@@ -42,9 +44,10 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             adapting to the query count and document lengths. Defaults to None (maxsim's 100M-element
             budget, at most ~400 MB, half that in bf16 / fp16). Lower it to cut evaluation memory.
         score_functions (Dict[str, Callable], optional): Override the default scoring, which resolves
-            from the model's ``similarity_fn_name`` at call time (with ``chunk_elements``
-            applied if one was given). The chosen callable receives ``(queries, documents)`` token tensors and must
-            return a ``(num_queries, num_documents)`` score matrix. XTR scoring is not supported here
+            from ``main_score_function`` when set, otherwise the model's ``similarity_fn_name`` at call time
+            (with ``chunk_elements`` applied if one was given). The chosen callable receives
+            ``(queries, documents)`` token tensors and must return a ``(num_queries, num_documents)`` score matrix.
+            XTR scoring is not supported here
             because it does a global top-k across the whole candidate set, which is incompatible with
             this evaluator's per-chunk corpus scoring.
         mrr_at_k (List[int]): k-values for MRR. Defaults to ``[10]``.
@@ -58,11 +61,13 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             Defaults to ``""``.
         write_csv (bool): Append per-call metric values to ``Information-Retrieval_evaluation_<name>_results.csv``.
             Defaults to True.
-        truncate_dim (int, optional): Not supported: multi-vector token embeddings have no
-            Matryoshka-style truncation, so any non-None value raises a ValueError. Defaults to None.
-        main_score_function (str or SimilarityFunction, optional): Which score-function key to treat
-            as the primary metric for the model card / trainer. Defaults to None (use the first /
-            only key in ``score_functions``).
+        truncate_dim (int, optional): Truncate and L2-normalize each token embedding before scoring.
+            Defaults to None (use the model's default dimension).
+        token_pooling (BaseTokenPooling, optional): Pooling applied during encoding. The pooler's
+            ``tasks`` select which inputs are pooled. Defaults to None (use the model's default pooler).
+        main_score_function (str or SimilarityFunction, optional): The score function to use for the primary metric. If
+            set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the highest NDCG
+            among the evaluated score functions).
         query_prompt (str, optional): Prompt prepended to every query during encoding. Defaults to None.
         query_prompt_name (str, optional): Name of a prompt registered on the model to prepend to
             queries. Mutually exclusive with ``query_prompt``. Defaults to None.
@@ -112,15 +117,10 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         *,
         corpus_chunk_size: int = 5000,
         chunk_elements: int | None = None,
+        token_pooling: BaseTokenPooling | None = None,
         score_functions: dict[str, Callable[[Tensor, Tensor], Tensor]] | None = None,
         **kwargs,
     ) -> None:
-        if kwargs.get("truncate_dim") is not None:
-            raise ValueError(
-                "truncate_dim is not supported by MultiVectorEncoder evaluators: multi-vector token "
-                "embeddings have no Matryoshka-style truncation. Remove truncate_dim to evaluate at "
-                "the full dimension."
-            )
         if score_functions is not None:
             if chunk_elements is not None:
                 raise ValueError(
@@ -144,6 +144,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         # _model_score_functions), so models carrying a different multi-vector similarity are scored
         # and labeled with it.
         self.chunk_elements = chunk_elements
+        self.token_pooling = token_pooling
         super().__init__(
             queries=queries,
             corpus=corpus,
@@ -153,7 +154,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             **kwargs,
         )
 
-    def __call__(
+    def evaluate(
         self,
         model: MultiVectorEncoder,
         output_path: str | None = None,
@@ -178,16 +179,17 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
                     f"({registered!r}) rather than composing with it. Include the model's "
                     f"marker prompt in {param_name} if the trained prompt should be kept."
                 )
-        return super().__call__(model, output_path, epoch, steps, *args, **kwargs)
+        return super().evaluate(model, output_path, epoch, steps, *args, **kwargs)
 
     def _model_score_functions(self, model: MultiVectorEncoder) -> dict[str, Callable[..., Tensor]]:
         # Resolve from similarity_fn_name instead of taking bare model.similarity, so that an explicit
         # chunk_elements bounds the scoring intermediate. Without one, maxsim's default element budget
         # bounds it on its own.
-        scoring_fn: Callable[..., Tensor] = SimilarityFunction.to_similarity_fn(model.similarity_fn_name)
+        name = self.main_score_function.value if self.main_score_function is not None else model.similarity_fn_name
+        scoring_fn: Callable[..., Tensor] = SimilarityFunction.to_similarity_fn(name)
         if self.chunk_elements is not None:
             scoring_fn = partial(scoring_fn, chunk_elements=self.chunk_elements)
-        return {model.similarity_fn_name: scoring_fn}
+        return {name: scoring_fn}
 
     def embed_inputs(
         self,
@@ -198,8 +200,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         prompt: str | None = None,
         **kwargs,
     ) -> list[Tensor] | Tensor:
-        # MultiVectorEncoder.encode doesn't accept truncate_dim, drop it before forwarding.
-        kwargs.pop("truncate_dim", None)
+        kwargs.setdefault("truncate_dim", self.truncate_dim)
         if encode_fn_name == "query":
             encode_fn = model.encode_query
         elif encode_fn_name == "document":
@@ -212,6 +213,7 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             prompt=prompt,
             batch_size=self.batch_size,
             show_progress_bar=self.show_progress_bar,
+            token_pooling=self.token_pooling,
             **kwargs,
         )
         if encode_fn_name == "query":
@@ -220,3 +222,9 @@ class MultiVectorInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             # encoded per chunk.
             embeddings = torch.nn.utils.rnn.pad_sequence(embeddings, batch_first=True)
         return embeddings
+
+    def get_config_dict(self) -> dict[str, Any]:
+        config_dict = super().get_config_dict()
+        if self.token_pooling is not None:
+            config_dict["token_pooling"] = pooling_config(self.token_pooling)
+        return config_dict

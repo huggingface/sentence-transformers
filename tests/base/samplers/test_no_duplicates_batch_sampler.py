@@ -14,19 +14,14 @@ from torch.utils.data import ConcatDataset
 
 import sentence_transformers.base.sampler as sampler_module
 from sentence_transformers.base.sampler import NoDuplicatesBatchSampler, ProportionalBatchSampler, _sample_value_str
-from sentence_transformers.util import is_datasets_available
 
-if is_datasets_available():
-    import datasets
-    from datasets import Audio, Dataset, Features, Value
+pytest.importorskip("datasets", exc_type=ModuleNotFoundError)
 
-    # datasets < 4.1.0 does not support num_proc=0
-    PRECOMPUTE_NUM_PROC = 0 if parse_version(datasets.__version__) >= parse_version("4.1.0") else 1
-else:
-    pytest.skip(
-        reason='Sentence Transformers was not installed with the `["train"]` extra.',
-        allow_module_level=True,
-    )
+import datasets
+from datasets import Audio, Dataset, Features, Value
+
+# datasets < 4.1.0 does not support num_proc=0
+PRECOMPUTE_NUM_PROC = 0 if parse_version(datasets.__version__) >= parse_version("4.1.0") else 1
 
 
 def _wav_bytes(frequency: int) -> bytes:

@@ -84,6 +84,38 @@ loss = MultiVectorDistillKLDivLoss(model=model)
 - The loss is scaled by the student temperature squared, which keeps gradient magnitudes comparable only for a shared temperature at or above 1.0 (the regime Hinton et al. cover). Below that the factor shrinks the loss instead, by 1e-6 at `student_temperature=0.001`: when combining KD with a contrastive loss, scale the KD weight back up accordingly.
 - **OOM**: drop `per_device_train_batch_size` first and raise `gradient_accumulation_steps` to hold the effective batch. Only reduce `N` (candidate-list length) as a last resort, since lowering N changes the experiment.
 
+## Loss modifiers
+
+Both modifiers sum a wrapped loss over compression variants. They support cached losses and can be stacked with `MultiVectorTokenPoolingLoss` wrapping `MultiVectorMatryoshkaLoss` to match the encoding order.
+
+### `MultiVectorTokenPoolingLoss`
+
+Train for pooled document tokens:
+
+```python
+from sentence_transformers.multi_vector_encoder.losses import MultiVectorTokenPoolingLoss
+from sentence_transformers.multi_vector_encoder.modules import HierarchicalTokenPooling
+
+loss = CachedMultiVectorMultipleNegativesRankingLoss(model=model, mini_batch_size=8)
+token_poolings = [None, HierarchicalTokenPooling(pool_factor=4)]
+loss = MultiVectorTokenPoolingLoss(model, loss, token_poolings=token_poolings)
+```
+
+Configure factors, token budgets, or distance thresholds on the pooling modules. Include an unpooled variant when desired. Queries stay unpooled by default. Wrap a model without a pooling module in its pipeline, and use `n_poolings_per_step` to sample variants if needed.
+
+### `MultiVectorMatryoshkaLoss`
+
+Train for truncated, normalized token embeddings:
+
+```python
+from sentence_transformers.multi_vector_encoder.losses import MultiVectorMatryoshkaLoss
+
+loss = CachedMultiVectorMultipleNegativesRankingLoss(model=model, mini_batch_size=8)
+loss = MultiVectorMatryoshkaLoss(model, loss, matryoshka_dims=[128, 96, 64, 32])
+```
+
+Include the full dimension to retain uncompressed training. Use `matryoshka_weights` for weighting and `n_dims_per_step` to sample dimensions.
+
 ## Data-shape gotchas
 
 - **Column 0 is always the query.** Losses call `self.model(sf, task="query" if idx==0 else "document")`. Use the collator's `router_mapping` to override if you need a non-standard column layout.

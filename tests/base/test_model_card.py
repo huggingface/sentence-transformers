@@ -6,14 +6,18 @@ import io
 import os
 import tempfile
 from contextlib import contextmanager
+from copy import deepcopy
 from unittest.mock import PropertyMock, patch
 
 import numpy as np
 import pytest
 import torch
+from huggingface_hub import ModelCard, ModelCardData
 
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, SentenceTransformerTrainingArguments
 from sentence_transformers.base.model_card import BaseModelCardData, generate_model_card
+from sentence_transformers.base.modules import Router
+from sentence_transformers.sentence_transformer.losses import MultipleNegativesRankingLoss
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 try:
@@ -57,6 +61,87 @@ def _make_model_card_data(cls=BaseModelCardData, **kwargs) -> BaseModelCardData:
     """Create a BaseModelCardData instance with common defaults for testing."""
     data = cls(**kwargs)
     return data
+
+
+@pytest.mark.parametrize(
+    ("job_id", "job_flavor"),
+    [
+        (None, None),
+        (None, "a10g-small"),
+        ("", "a10g-small"),
+        ("test-job", None),
+        ("test-job", ""),
+        ("test-job", "a10g-small"),
+    ],
+)
+def test_hf_jobs_metadata(word_embeddings_model, tmp_path, monkeypatch, job_id, job_flavor) -> None:
+    for name, value in {"HF_JOB_ID": job_id, "HF_JOB_FLAVOR": job_flavor}.items():
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+
+    model = word_embeddings_model
+    assert "hf_jobs" not in model.model_card_data.tags
+    args = SentenceTransformerTrainingArguments(output_dir=str(tmp_path), report_to=[])
+    SentenceTransformerTrainer(model=model, args=args)
+
+    monkeypatch.delenv("HF_JOB_ID", raising=False)
+    monkeypatch.delenv("HF_JOB_FLAVOR", raising=False)
+    card = ModelCard(generate_model_card(model))
+    assert ("hf_jobs" in card.data.tags) == bool(job_id)
+    assert ("### Training Hardware" in card.text) == bool(job_id and job_flavor)
+    assert "### Environmental Impact" not in card.text
+    if job_id and job_flavor:
+        assert f"- **Hugging Face Jobs**: `{job_flavor}`" in card.text
+    else:
+        assert "Hugging Face Jobs" not in card.text
+    assert "test-job" not in card.content
+
+
+@pytest.mark.parametrize(
+    "model_type", ["base", "sentence_transformer", "cross_encoder", "sparse_encoder", "multi_vector_encoder"]
+)
+@pytest.mark.parametrize("job_flavor", [None, "a10g-small"])
+@pytest.mark.parametrize("with_codecarbon", [False, True])
+def test_hf_jobs_hardware_templates(model_type, job_flavor, with_codecarbon) -> None:
+    template_path = BaseModelCardData().template_path.parent.parent / model_type / "model_card_template.md"
+    emissions = {
+        "energy_consumed": 1.5,
+        "emissions": 250,
+        "on_cloud": True,
+        "hardware_used": "NVIDIA A10G",
+        "cpu_model": "Test CPU",
+        "ram_total_size": 32,
+    }
+    card = ModelCard.from_template(
+        ModelCardData(),
+        template_path=template_path,
+        hf_job_flavor=job_flavor,
+        co2_eq_emissions=emissions if with_codecarbon else None,
+        train_datasets=[],
+        eval_datasets=[],
+        version={},
+        citations={},
+        model_num_labels=1,
+        training_time=None,
+    )
+    assert card.text.count("### Training Hardware") == int(bool(job_flavor or with_codecarbon))
+    assert ("Hugging Face Jobs" in card.text) == bool(job_flavor)
+    assert ("### Environmental Impact" in card.text) == with_codecarbon
+    if job_flavor:
+        assert f"- **Hugging Face Jobs**: `{job_flavor}`\n" in card.text
+    if with_codecarbon:
+        assert "- **Energy Consumed**: 1.500 kWh\n" in card.text
+        assert "- **Carbon Emitted**: 0.250 kg of CO2\n\n### Training Hardware" in card.text
+        assert "- **On Cloud**: Yes\n" in card.text
+        assert "- **GPU Model**: NVIDIA A10G\n" in card.text
+        assert "- **CPU Model**: Test CPU\n" in card.text
+        assert "- **RAM Size**: 32.00 GB\n" in card.text
+    else:
+        assert "- **GPU Model**" not in card.text
+        assert "- **CPU Model**" not in card.text
+        assert "- **RAM Size**" not in card.text
 
 
 def _make_pil_image(width: int = 64, height: int = 64) -> PILModule.Image:
@@ -130,6 +215,29 @@ class TestSetWidgetExamples:
         ]
         all_texts = " ".join([*data.usage_examples, *widget_texts])
         assert not any(f"row{i}" in all_texts for i in (5, 6, 7))
+
+    @pytest.mark.parametrize("empty_column", ["anchor", "positive"])
+    @pytest.mark.parametrize("as_dict", [False, True])
+    def test_widget_examples_skip_empty_texts(self, empty_column, as_dict) -> None:
+        columns = {key: [f"{key} sentence {i}" for i in range(10)] for key in ("anchor", "positive")}
+        columns[empty_column][0] = ""
+        if as_dict:
+            columns = {key: [{key: text} for text in texts] for key, texts in columns.items()}
+        data = _make_model_card_data()
+        with patch(
+            "sentence_transformers.base.model_card.random.sample",
+            side_effect=lambda population, k: list(population)[:k],
+        ):
+            data.set_widget_examples(Dataset.from_dict(columns))
+        assert data.widget
+        assert all(entry["source_sentence"] and all(entry["sentences"]) for entry in data.widget)
+        assert "" not in data.usage_examples
+
+    def test_widget_examples_all_empty(self) -> None:
+        data = _make_model_card_data()
+        data.set_widget_examples(Dataset.from_dict({"text": [""] * 10}))
+        assert data.widget == []
+        assert data.usage_examples is None
 
     def test_generates_examples_for_plain_text_dataset(self) -> None:
         # A plain text dataset (no transform) must still produce widget examples: the skip above is targeted.
@@ -748,6 +856,44 @@ class TestComputeDatasetMetricsNonText:
             # 3 example rows, 1 image column, all distinct = 3 images saved
             for i in range(3):
                 assert os.path.isfile(os.path.join(tmpdir, "assets", f"example_image_{i}.jpg"))
+
+
+@pytest.mark.parametrize("dataset_type", ["train", "eval"])
+@pytest.mark.parametrize("mapping_type", ["single", "shared", "per_dataset"])
+def test_dataset_metrics_respect_router_mapping(word_embeddings_model, tmp_path, dataset_type, mapping_type):
+    left_modules = deepcopy(list(word_embeddings_model))
+    left_modules[0].max_seq_length = 1
+    router = Router({"left": left_modules, "right": list(word_embeddings_model)}, allow_empty_key=False)
+    model = SentenceTransformer(modules=[router])
+    model.model_card_data.generate_widget_examples = False
+    dataset = Dataset.from_dict({"anchor": ["hello", "hello world"], "positive": ["world", "world hello"]})
+    router_mapping = {"anchor": "left", "positive": "right"}
+    short_stats = {"min": "1 tokens", "mean": "1.0 tokens", "max": "1 tokens"}
+    long_stats = {"min": "1 tokens", "mean": "1.5 tokens", "max": "2 tokens"}
+    expected_stats = [{"anchor": short_stats, "positive": long_stats}]
+    if mapping_type != "single":
+        dataset = DatasetDict(first=dataset, second=dataset)
+        if mapping_type == "per_dataset":
+            router_mapping = {"first": router_mapping, "second": {"anchor": "right", "positive": "left"}}
+            expected_stats.append({"anchor": long_stats, "positive": short_stats})
+        else:
+            expected_stats *= 2
+
+    args = SentenceTransformerTrainingArguments(
+        output_dir=tmp_path, router_mapping=router_mapping, report_to="none", use_cpu=True
+    )
+    SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        loss=MultipleNegativesRankingLoss(model),
+        **{f"{dataset_type}_dataset": dataset},
+    )
+
+    metadata = getattr(model.model_card_data, f"{dataset_type}_datasets")
+    assert [
+        {column: dataset_info["stats"][column]["data"] for column in ("anchor", "positive")}
+        for dataset_info in metadata
+    ] == expected_stats
 
 
 class TestComputeDatasetMetricsStringMediaPath:

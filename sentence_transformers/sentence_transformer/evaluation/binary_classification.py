@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -16,7 +14,6 @@ from sentence_transformers.util import (
     pairwise_euclidean_sim,
     pairwise_manhattan_sim,
 )
-from sentence_transformers.util.similarity import SimilarityFunction
 
 if TYPE_CHECKING:
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
@@ -44,7 +41,8 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         show_progress_bar (bool, optional): If true, prints a progress bar. Defaults to False.
         write_csv (bool, optional): Write results to a CSV file. Defaults to True.
         truncate_dim (Optional[int], optional): The dimension to truncate sentence embeddings to. `None` uses the model's current truncation dimension. Defaults to None.
-        similarity_fn_names (Optional[List[Literal["cosine", "dot", "euclidean", "manhattan"]]], optional): The similarity functions to use. If not specified, defaults to the ``similarity_fn_name`` attribute of the model. Defaults to None.
+        similarity_fn_names (Optional[List[Literal["cosine", "dot", "euclidean", "manhattan"]]], optional): The
+            similarity functions to evaluate. If omitted or empty, use ``model.similarity_fn_name``. Defaults to None.
 
     Example:
         ::
@@ -101,10 +99,22 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         self.truncate_dim = truncate_dim
         self.similarity_fn_names = similarity_fn_names or []
 
-        assert len(self.sentences1) == len(self.sentences2)
-        assert len(self.sentences1) == len(self.labels)
-        for label in labels:
-            assert label == 0 or label == 1
+        fn_keys = list(self._get_similarity_functions().keys())
+        if unknown_names := sorted(set(self.similarity_fn_names) - set(fn_keys)):
+            raise ValueError(
+                f"`similarity_fn_names` got unexpected names {unknown_names}, expected names in {fn_keys}."
+            )
+
+        if not (len(self.sentences1) == len(self.sentences2) == len(self.labels)):
+            raise ValueError(
+                f"sentences1 ({len(self.sentences1)}), sentences2 ({len(self.sentences2)}) and labels "
+                f"({len(self.labels)}) must have the same length."
+            )
+        if len(self.sentences1) == 0:
+            raise ValueError("BinaryClassificationEvaluator needs at least one sentence pair with a label.")
+        for label in self.labels:
+            if label not in (0, 1):
+                raise ValueError(f"BinaryClassificationEvaluator labels must be 0 or 1, got {label!r}.")
 
         self.write_csv = write_csv
         self.name = name
@@ -119,6 +129,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         self.csv_headers = ["epoch", "steps"]
 
         self._append_csv_headers(self.similarity_fn_names)
+        self._similarity_fn_names_from_model = not self.similarity_fn_names
 
     def _append_csv_headers(self, similarity_fn_names: list[str]) -> None:
         metrics = [
@@ -148,7 +159,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
             scores.append(example.label)
         return cls(sentences1, sentences2, scores, **kwargs)
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
         """
@@ -163,43 +174,12 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         Returns:
             Dict[str, float]: A dictionary containing the evaluation metrics.
         """
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
 
-        logger.info(f"Binary Accuracy Evaluation of the model on the {self.name} dataset{out_txt}:")
-
-        if not self.similarity_fn_names:
+        if self._similarity_fn_names_from_model and self.similarity_fn_names != [model.similarity_fn_name]:
             self.similarity_fn_names = [model.similarity_fn_name]
+            self.csv_headers = ["epoch", "steps"]
             self._append_csv_headers(self.similarity_fn_names)
         scores = self.compute_metrics(model)
-
-        file_output_data = [epoch, steps]
-
-        for header_name in self.csv_headers:
-            if header_name not in ("epoch", "steps"):
-                sim_fct, metric = header_name.split("_", maxsplit=1)
-                if sim_fct in scores:
-                    file_output_data.append(scores[sim_fct][metric])
-
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                with open(csv_path, newline="", mode="w", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(self.csv_headers)
-                    writer.writerow(file_output_data)
-            else:
-                with open(csv_path, newline="", mode="a", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(file_output_data)
 
         metrics = {
             f"{short_name}_{metric}": value
@@ -217,8 +197,6 @@ class BinaryClassificationEvaluator(BaseEvaluator):
         else:
             self.primary_metric = f"{self.similarity_fn_names[0]}_ap"
 
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
         return metrics
 
     def compute_metrics(self, model: SentenceTransformer) -> dict[str, dict[str, float]]:
@@ -236,29 +214,7 @@ class BinaryClassificationEvaluator(BaseEvaluator):
             embeddings1 = [emb_dict[sent] for sent in self.sentences1]
             embeddings2 = [emb_dict[sent] for sent in self.sentences2]
 
-        similarity_fns = {
-            SimilarityFunction.COSINE.value: {
-                "score_fn": lambda x, y: pairwise_cos_sim(x, y),
-                "name": "Cosine-Similarity",
-                "greater_is_better": True,
-            },
-            SimilarityFunction.DOT_PRODUCT.value: {
-                "score_fn": lambda x, y: pairwise_dot_score(x, y),
-                "name": "Dot-Product",
-                "greater_is_better": True,
-            },
-            # pairwise_*_sim returns negative distances, so negate them back into positive distances (#3702)
-            SimilarityFunction.MANHATTAN.value: {
-                "score_fn": lambda x, y: -pairwise_manhattan_sim(x, y),
-                "name": "Manhattan-Distance",
-                "greater_is_better": False,
-            },
-            SimilarityFunction.EUCLIDEAN.value: {
-                "score_fn": lambda x, y: -pairwise_euclidean_sim(x, y),
-                "name": "Euclidean-Distance",
-                "greater_is_better": False,
-            },
-        }
+        similarity_fns = self._get_similarity_functions()
 
         labels = np.asarray(self.labels)
         output_scores = {}
@@ -297,6 +253,31 @@ class BinaryClassificationEvaluator(BaseEvaluator):
 
     # Backwards compatibility alias
     compute_metrices = compute_metrics
+
+    def _get_similarity_functions(self) -> dict:
+        return {
+            "cosine": {
+                "score_fn": pairwise_cos_sim,
+                "name": "Cosine-Similarity",
+                "greater_is_better": True,
+            },
+            "dot": {
+                "score_fn": pairwise_dot_score,
+                "name": "Dot-Product",
+                "greater_is_better": True,
+            },
+            # pairwise_*_sim returns negative distances, so negate them back into positive distances (#3702)
+            "manhattan": {
+                "score_fn": lambda x, y: -pairwise_manhattan_sim(x, y),
+                "name": "Manhattan-Distance",
+                "greater_is_better": False,
+            },
+            "euclidean": {
+                "score_fn": lambda x, y: -pairwise_euclidean_sim(x, y),
+                "name": "Euclidean-Distance",
+                "greater_is_better": False,
+            },
+        }
 
     def embed_inputs(
         self,

@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+#     "nltk",
+# ]
+# ///
 import logging
 import random
 import traceback
@@ -98,7 +105,7 @@ Dataset({
 """
 # As you can see, the noisy text is applied on the fly when the sample is accessed.
 
-# 3. Define our training loss: https://sbert.net/docs/package_reference/sentence_transformer/losses.html#denoisingautoencoderLoss
+# 3. Define our training loss: https://sbert.net/docs/package_reference/sentence_transformer/losses.html#denoisingautoencoderloss
 # Note that this will likely result in warnings as we're loading 'model_name' as a decoder, but it likely won't
 # have weights for that yet. This is fine, as we'll be training it from scratch.
 train_loss = DenoisingAutoEncoderLoss(model, decoder_name_or_path=model_name, tie_encoder_decoder=True)
@@ -164,7 +171,7 @@ final_output_dir = f"{output_dir}/final"
 model.save(final_output_dir)
 
 # 9. (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
 try:
     model.push_to_hub(f"{model_name}-tsdae")

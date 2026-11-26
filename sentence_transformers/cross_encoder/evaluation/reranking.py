@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING
 
 import numpy as np
-from sklearn.metrics import average_precision_score, ndcg_score
+from sklearn.metrics import average_precision_score
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
+from sentence_transformers.util.metrics import _binary_ndcg, _reciprocal_rank
 
 if TYPE_CHECKING:
     from sentence_transformers.cross_encoder.model import CrossEncoder
@@ -22,6 +21,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
 
     Given a query and a list of documents, it computes the score [query, doc_i] for all possible
     documents and sorts them in decreasing order. Then, ``MRR@10``, ``NDCG@10`` and ``MAP`` are computed to measure the quality of the ranking.
+    MRR is averaged over all possible orderings of documents with equal scores.
 
     The evaluator expects a list of samples. Each sample is a dictionary with the mandatory "query" and "positive" keys,
     and either a "negative" or a "documents" key. The "query" is the search query, the "positive" is a list of relevant
@@ -34,7 +34,8 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
     Note that the maximum score is 1.0 by default, because all positive documents are included in the ranking. This
     can be toggled off by using samples with ``documents`` instead of ``negative``, i.e. ranked lists of all documents
     including the positive ones, together with ``always_rerank_positives=False``. ``always_rerank_positives=False`` only
-    works when using ``documents`` instead of ``negative``.
+    works when using ``documents`` instead of ``negative``. MAP and NDCG are normalized using all known positives,
+    including those absent from ``documents``.
 
     Args:
         samples (list): A list of dictionaries, where each dictionary represents a sample and has the following keys:
@@ -93,7 +94,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
             Queries: 10047    Positives: Min 0.0, Mean 1.1, Max 5.0   Negatives: Min 1.0, Mean 7.1, Max 10.0
                      Base  -> Reranked
             MAP:     34.03 -> 62.36
-            MRR@10:  34.67 -> 62.96
+            MRR@10:  34.67 -> 62.97
             NDCG@10: 49.05 -> 71.05
             '''
             print(reranking_evaluator.primary_metric)
@@ -130,6 +131,8 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
 
         if isinstance(self.samples, dict):
             self.samples = list(self.samples.values())
+        if len(self.samples) == 0:
+            raise ValueError("CrossEncoderRerankingEvaluator needs at least one sample.")
 
         self.csv_file = "CrossEncoderRerankingEvaluator" + ("_" + name if name else "") + f"_results_@{self.at_k}.csv"
         self.csv_headers = ["epoch", "steps", "MAP", f"MRR@{self.at_k}", f"NDCG@{self.at_k}"]
@@ -139,14 +142,9 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
     def __call__(
         self, model: CrossEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
+        out_txt = ""
         if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-
+            out_txt = f" after epoch {epoch}" if steps == -1 else f" in epoch {epoch} after {steps} steps"
         logger.info(f"CrossEncoderRerankingEvaluator: Evaluating the model on the {self.name} dataset{out_txt}:")
 
         # First pass: preprocess all samples to build the query-document pairs and relevance labels
@@ -158,7 +156,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
         num_negatives = []
 
         all_pairs = []  # flat list of [query, doc] pairs for model.predict()
-        sample_metadata = []  # per-sample: (is_relevant, num_pairs, num_ignored_positives) or None if skipped
+        sample_metadata = []
 
         for instance in self.samples:
             if "query" not in instance:
@@ -180,14 +178,10 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
             negative = instance.get("negative", None)
             documents = instance.get("documents", None)
 
-            if documents:
+            if documents is not None:
                 base_is_relevant = [int(sample in positive) for sample in documents]
-                if sum(base_is_relevant) == 0:
-                    base_mrr, base_ndcg, base_ap = 0, 0, 0
-                else:
-                    base_is_relevant += [1] * (len(positive) - sum(base_is_relevant))
-                    base_pred_scores = np.array(range(len(base_is_relevant), 0, -1))
-                    base_mrr, base_ndcg, base_ap = self.compute_metrics(base_is_relevant, base_pred_scores)
+                base_pred_scores = np.arange(len(documents), 0, -1)
+                base_mrr, base_ndcg, base_ap = self.compute_metrics(base_is_relevant, base_pred_scores, len(positive))
                 base_mrr_scores.append(base_mrr)
                 base_ndcg_scores.append(base_ndcg)
                 base_ap_scores.append(base_ap)
@@ -197,7 +191,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                     is_relevant = [1] * len(positive) + [0] * (len(docs) - len(positive))
                 else:
                     docs = documents
-                    is_relevant = [int(sample in positive) for sample in documents]
+                    is_relevant = base_is_relevant
             else:
                 docs = positive + negative
                 is_relevant = [1] * len(positive) + [0] * len(negative)
@@ -209,7 +203,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 sample_metadata.append(None)
                 continue
 
-            sample_metadata.append((is_relevant, len(docs)))
+            sample_metadata.append((is_relevant, len(positive)))
             all_pairs.extend([query, doc] for doc in docs)
 
         # Single batched predict call for all query-document pairs
@@ -237,11 +231,12 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 all_ap_scores.append(0)
                 continue
 
-            is_relevant, num_pairs = meta
+            is_relevant, total_positives = meta
+            num_pairs = len(is_relevant)
             pred_scores = all_pred_scores[score_offset : score_offset + num_pairs]
             score_offset += num_pairs
 
-            mrr, ndcg, ap = self.compute_metrics(is_relevant, pred_scores)
+            mrr, ndcg, ap = self.compute_metrics(is_relevant, pred_scores, total_positives)
             all_mrr_scores.append(mrr)
             all_ndcg_scores.append(ndcg)
             all_ap_scores.append(ap)
@@ -256,6 +251,7 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
             f"mrr@{self.at_k}": mean_mrr,
             f"ndcg@{self.at_k}": mean_ndcg,
         }
+        model_card_metrics = metrics
 
         logger.info(
             f"Queries: {num_queries}\t"
@@ -281,43 +277,29 @@ class CrossEncoderRerankingEvaluator(BaseEvaluator):
                 f"mrr@{self.at_k}": f"{mean_mrr:.4f} ({mean_mrr - mean_base_mrr:+.4f})",
                 f"ndcg@{self.at_k}": f"{mean_ndcg:.4f} ({mean_ndcg - mean_base_ndcg:+.4f})",
             }
-            model_card_metrics = self.prefix_name_to_metrics(model_card_metrics, self.name)
-            self.store_metrics_in_model_card_data(model, model_card_metrics, epoch, steps)
-
             metrics.update(base_metrics)
-            metrics = self.prefix_name_to_metrics(metrics, self.name)
         else:
             logger.info(f"MAP:{' ' * len(str(self.at_k))}   {mean_ap * 100:.2f}")
             logger.info(f"MRR@{self.at_k}:  {mean_mrr * 100:.2f}")
             logger.info(f"NDCG@{self.at_k}: {mean_ndcg * 100:.2f}")
 
-            metrics = self.prefix_name_to_metrics(metrics, self.name)
-            self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
+        model_card_metrics = self.prefix_name_to_metrics(model_card_metrics, self.name)
+        self.store_metrics_in_model_card_data(model, model_card_metrics, epoch, steps)
+        metrics = self.prefix_name_to_metrics(metrics, self.name)
 
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow([epoch, steps, mean_ap, mean_mrr, mean_ndcg])
+            self._write_csv_row(output_path, [epoch, steps, mean_ap, mean_mrr, mean_ndcg])
 
         return metrics
 
-    def compute_metrics(self, y_true, y_pred):
-        ranking = np.argsort(y_pred)[::-1]
-
-        mrr = 0
-        for rank, index in enumerate(ranking[0 : self.at_k]):
-            if y_true[index]:
-                mrr = 1 / (rank + 1)
-                break
-
-        ndcg = ndcg_score([y_true], [y_pred], k=self.at_k)
-        ap = average_precision_score(y_true, y_pred)
+    def compute_metrics(self, y_true, y_pred, num_positives: int | None = None):
+        num_retrieved_positives = sum(y_true)
+        if num_retrieved_positives == 0:
+            return 0, 0, 0
+        num_positives = max(num_positives or 0, num_retrieved_positives)
+        mrr = _reciprocal_rank(y_true, y_pred, k=self.at_k)
+        ndcg = _binary_ndcg(y_true, y_pred, k=self.at_k, num_positives=num_positives)
+        ap = average_precision_score(y_true, y_pred) * (num_retrieved_positives / num_positives)
         return mrr, ndcg, ap
 
     def get_config_dict(self):

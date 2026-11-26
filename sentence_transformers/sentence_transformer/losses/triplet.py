@@ -57,7 +57,8 @@ class TripletLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import TripletLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -66,7 +67,7 @@ class TripletLoss(nn.Module):
                     "positive": ["It's so sunny.", "He took the car to the office."],
                     "negative": ["It's quite rainy, sadly.", "She walked to the store."],
                 })
-                loss = losses.TripletLoss(model=model)
+                loss = TripletLoss(model=model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -91,6 +92,7 @@ class TripletLoss(nn.Module):
 
         Args:
             embeddings: List of embeddings
+            labels: Unused, the triplet structure defines the targets
 
         Returns:
             Loss value

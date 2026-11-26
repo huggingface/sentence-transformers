@@ -21,6 +21,7 @@ except ImportError:  # pragma: no cover - optional dependency
     xxhash = None
 
 from sentence_transformers.util import is_datasets_available
+from sentence_transformers.util.misc import _to_list
 
 if is_datasets_available():
     from datasets import Dataset
@@ -288,11 +289,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         for sample_idx, label in enumerate(labels):
             groups[label].append(sample_idx)
 
-        # Keep labels with >= 2 samples. Trim each to an even count so every
-        # label contributes complete pairs in the interleaving.
-        self.groups = {
-            label: indices[: len(indices) // 2 * 2] for label, indices in groups.items() if len(indices) >= 2
-        }
+        self.groups = {label: indices for label, indices in groups.items() if len(indices) >= 2}
         if len(self.groups) < 2:
             raise ValueError(
                 "GroupByLabelBatchSampler requires at least 2 distinct labels with >= 2 samples each, "
@@ -308,7 +305,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
     def _determine_labels_to_use(dataset: Dataset, valid_label_columns: list[str] | None) -> list[Any]:
         for column_name in valid_label_columns or []:
             if column_name in dataset.column_names:
-                return dataset[column_name]
+                return _to_list(dataset[column_name])
         raise ValueError(
             f"None of the valid_label_columns {valid_label_columns} are in the dataset, "
             f"which only has these columns: {dataset.column_names}."
@@ -318,10 +315,10 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         if self.generator and self.seed is not None:
             self.generator.manual_seed(self.seed + self.epoch)
 
-        # Shuffle samples within each label
+        # Shuffle samples within each label, then trim to complete pairs (e.g. even count).
         queues: dict[Any, deque[int]] = {}
         for label, indices in self.groups.items():
-            perm = torch.randperm(len(indices), generator=self.generator)
+            perm = torch.randperm(len(indices), generator=self.generator)[: len(indices) // 2 * 2]
             queues[label] = deque(indices[i] for i in perm)
 
         # Round-robin: each label emits 2 samples per round. Stop when < 2 labels remain.

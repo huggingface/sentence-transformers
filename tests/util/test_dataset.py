@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+import pyarrow as pa
 import pytest
 from datasets import Dataset, DatasetDict
 
@@ -501,6 +502,34 @@ class TestSortedIdIndex:
         train.set_transform(resolve_ids({"document_id": lookup}))
         with pytest.raises(KeyError, match="ID 99 from input column 'document_id' was not found"):
             train[0]
+
+    @pytest.mark.parametrize("ids", [[1, 2**63 + 1, 2**63 + 2], [1, 2**64 - 1]])
+    def test_uint64_ids_resolve_without_precision_loss(self, ids: list[int]) -> None:
+        texts = [f"Document {id}" for id in ids]
+        lookup = Dataset(pa.table({"document_id": pa.array(ids, type=pa.uint64()), "text": texts}))
+        transform = resolve_ids({"document_id": lookup})
+
+        # A batch containing both small and large IDs must agree with reading each row separately.
+        assert transform({"document_id": ids}) == {"document": texts}
+        train = Dataset(pa.table({"document_id": pa.array(ids, type=pa.uint64())}))
+        train.set_transform(transform)
+        assert [train[i]["document"] for i in range(len(ids))] == texts
+
+    @pytest.mark.parametrize("missing_id", [-1, 2**63, 2**63 + 3, 2**64])
+    def test_uint64_missing_ids_do_not_wrap_or_round(self, missing_id: int) -> None:
+        ids = [1, 2**63 + 1, 2**63 + 2, 2**64 - 1]
+        lookup = Dataset(pa.table({"document_id": pa.array(ids, type=pa.uint64()), "text": [str(id) for id in ids]}))
+        transform = resolve_ids({"document_id": lookup})
+
+        with pytest.raises(KeyError, match=f"ID {missing_id} from input column 'document_id' was not found"):
+            transform({"document_id": [1, missing_id]})
+
+    def test_nullable_uint64_ids_still_resolve(self) -> None:
+        ids = [1, None, 2**63 + 1]
+        lookup = Dataset(pa.table({"document_id": pa.array(ids, type=pa.uint64()), "text": ["A", "B", "C"]}))
+        transform = resolve_ids({"document_id": lookup})
+
+        assert transform({"document_id": ids}) == {"document": ["A", "B", "C"]}
 
     def test_wrong_id_type_reports_not_found(self) -> None:
         # String ids against an integer index cannot match: the first id is reported missing.

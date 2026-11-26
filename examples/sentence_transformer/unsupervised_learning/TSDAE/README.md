@@ -18,8 +18,8 @@ import random
 from datasets import Dataset
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.losses import DenoisingAutoEncoderLoss
-from sentence_transformers.trainer import SentenceTransformerTrainer
-from sentence_transformers.training_args import SentenceTransformerTrainingArguments
+from sentence_transformers.sentence_transformer.trainer import SentenceTransformerTrainer
+from sentence_transformers.sentence_transformer.training_args import SentenceTransformerTrainingArguments
 
 # 1. Define a SentenceTransformer model
 model = SentenceTransformer("google-bert/bert-base-uncased")

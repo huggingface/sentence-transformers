@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """Evaluate a pretrained multi-vector model on NanoBEIR.
 
 NanoBEIR is a fast benchmarking suite of 13 small BEIR subsets, useful for quickly comparing models

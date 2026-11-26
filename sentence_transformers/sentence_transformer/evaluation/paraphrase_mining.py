@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
@@ -26,13 +24,13 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
             For example, sentences_map[id] => sentence.
         duplicates_list (List[Tuple[str, str]], optional): A list with id pairs [(id1, id2), (id1, id5)]
             that identifies the duplicates / paraphrases in the sentences_map. Defaults to None.
-        duplicates_dict (Dict[str, Dict[str, bool]], optional): A default dictionary mapping [id1][id2]
-            to true if id1 and id2 are duplicates. Must be symmetric, i.e., if [id1][id2] => True,
-            then [id2][id1] => True. Defaults to None.
+        duplicates_dict (Dict[str, Dict[str, bool]], optional): A dictionary mapping [id1][id2]
+            to true if id1 and id2 are duplicates. Missing pairs are treated as non-duplicates.
+            Must be symmetric, i.e., if [id1][id2] => True, then [id2][id1] => True. Defaults to None.
         add_transitive_closure (bool, optional): If true, it adds a transitive closure,
             i.e. if dup[a][b] and dup[b][c], then dup[a][c]. Defaults to False.
-        query_chunk_size (int, optional): To identify the paraphrases, the cosine-similarity between
-            all sentence-pairs will be computed. As this might require a lot of memory, we perform
+        query_chunk_size (int, optional): To identify the paraphrases, the similarity between all
+            sentence-pairs will be computed with the model's similarity function. As this might require a lot of memory, we perform
             a batched computation. query_chunk_size sentences will be compared against up to
             corpus_chunk_size sentences. In the default setting, 5000 sentences will be grouped
             together and compared up-to against 100k other sentences. Defaults to 5000.
@@ -124,7 +122,10 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
         # Store the flag under a private name, as `self.add_transitive_closure` refers to the static method
         self._add_transitive_closure = add_transitive_closure
 
-        self.duplicates = duplicates_dict if duplicates_dict is not None else defaultdict(lambda: defaultdict(bool))
+        self.duplicates = defaultdict(lambda: defaultdict(bool))
+        if duplicates_dict is not None:
+            for id1, id2_to_is_duplicate in duplicates_dict.items():
+                self.duplicates[id1].update(id2_to_is_duplicate)
         if duplicates_list is not None:
             for id1, id2 in duplicates_list:
                 if id1 in sentences_map and id2 in sentences_map:
@@ -155,20 +156,9 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
         self.write_csv = write_csv
         self.primary_metric = "average_precision"
 
-    def __call__(
+    def evaluate(
         self, model: SentenceTransformer, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
-        if epoch != -1:
-            if steps == -1:
-                out_txt = f" after epoch {epoch}"
-            else:
-                out_txt = f" in epoch {epoch} after {steps} steps"
-        else:
-            out_txt = ""
-        if self.truncate_dim is not None:
-            out_txt += f" (truncated to {self.truncate_dim})"
-
-        logger.info(f"Paraphrase Mining Evaluation of the model on the {self.name} dataset{out_txt}:")
 
         # Compute embedding for the sentences
         pairs_list = paraphrase_mining(
@@ -181,6 +171,7 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
             max_pairs=self.max_pairs,
             top_k=self.top_k,
             truncate_dim=self.truncate_dim,
+            score_function=model.similarity,
         )
 
         logger.info("Number of candidate pairs: " + str(len(pairs_list)))
@@ -224,29 +215,13 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
         logger.info(f"Recall: {best_recall * 100:.2f}")
         logger.info(f"F1: {best_f1 * 100:.2f}\n")
 
-        if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            if not os.path.isfile(csv_path):
-                with open(csv_path, newline="", mode="w", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(self.csv_headers)
-                    writer.writerow([epoch, steps, best_precision, best_recall, best_f1, threshold, average_precision])
-            else:
-                with open(csv_path, newline="", mode="a", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow([epoch, steps, best_precision, best_recall, best_f1, threshold, average_precision])
-
-        metrics = {
+        return {
             "average_precision": average_precision,
             "f1": best_f1,
             "precision": best_precision,
             "recall": best_recall,
             "threshold": threshold,
         }
-        metrics = self.prefix_name_to_metrics(metrics, self.name)
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
-        return metrics
 
     @staticmethod
     def add_transitive_closure(graph):
@@ -256,13 +231,13 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
                 connected_subgraph_nodes = set()
                 connected_subgraph_nodes.add(a)
 
-                # Add all nodes in the connected graph
-                neighbor_nodes_queue = list(graph[a])
+                # Add all nodes in the connected graph, following only the pairs marked as duplicates
+                neighbor_nodes_queue = [node for node, is_duplicate in graph[a].items() if is_duplicate]
                 while len(neighbor_nodes_queue) > 0:
                     node = neighbor_nodes_queue.pop(0)
                     if node not in connected_subgraph_nodes:
                         connected_subgraph_nodes.add(node)
-                        neighbor_nodes_queue.extend(graph[node])
+                        neighbor_nodes_queue.extend(n for n, is_duplicate in graph[node].items() if is_duplicate)
 
                 # Ensure transitivity between all nodes in the graph
                 connected_subgraph_nodes = list(connected_subgraph_nodes)

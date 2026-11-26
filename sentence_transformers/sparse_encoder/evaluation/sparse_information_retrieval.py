@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections import defaultdict
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -9,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 
 from sentence_transformers.sentence_transformer.evaluation import InformationRetrievalEvaluator
-from sentence_transformers.util import append_to_last_row, compute_count_vector
+from sentence_transformers.util import compute_count_vector
 
 if TYPE_CHECKING:
     import numpy as np
@@ -46,8 +45,11 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
         write_csv (bool): Whether to write the evaluation results to a CSV file. Defaults to True.
         max_active_dims (Optional[int], optional): The maximum number of active dimensions to use.
             `None` uses the model's current `max_active_dims`. Defaults to None.
-        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions. Defaults to the ``similarity`` function of the model passed to each call, so a reused evaluator follows every model's own similarity.
-        main_score_function (Union[str, SimilarityFunction], optional): The main score function to use for evaluation. Defaults to None.
+        score_functions (Dict[str, Callable[[Tensor, Tensor], Tensor]]): A dictionary mapping score function names to score functions.
+            If omitted, uses ``main_score_function`` when set, otherwise the model's ``similarity`` function on each call.
+        main_score_function (Union[str, SimilarityFunction], optional): The score function to use for the primary
+            metric. If set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the
+            highest NDCG among the evaluated score functions).
         query_prompt (str, optional): The prompt to be used when encoding the corpus. Defaults to None.
         query_prompt_name (str, optional): The name of the prompt to be used when encoding the corpus. Defaults to None.
         corpus_prompt (str, optional): The prompt to be used when encoding the corpus. Defaults to None.
@@ -199,13 +201,13 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
                 ]
             )
 
-    def __call__(
+    def evaluate(
         self, model: SparseEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1, *args, **kwargs
     ) -> dict[str, float]:
         self.sparsity_stats = {"query": defaultdict(list), "corpus": defaultdict(list)}
         self.count_vectors = {}
         self.count_lengths = {"query": [], "corpus": []}
-        metrics = super().__call__(model=model, output_path=output_path, epoch=epoch, steps=steps)
+        metrics = super().evaluate(model, output_path, epoch, steps, *args, **kwargs)
         for prefix in ["query", "corpus"]:
             for key, value in self.sparsity_stats[prefix].items():
                 if prefix == "query":
@@ -219,8 +221,7 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             f"{prefix}_{key}": value for prefix, values in self.sparsity_stats.items() for key, value in values.items()
         }
         self.sparsity_stats["avg_flops"] = self._calculate_avg_flops()
-        metrics.update(self.prefix_name_to_metrics(self.sparsity_stats, self.name))
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
+        metrics.update(self.sparsity_stats)
         logger.info(
             f"Model Query Sparsity: Active Dimensions: {self.sparsity_stats['query_active_dims']:.1f}, Sparsity Ratio: {self.sparsity_stats['query_sparsity_ratio']:.4f}"
         )
@@ -228,10 +229,24 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             f"Model Corpus Sparsity: Active Dimensions: {self.sparsity_stats['corpus_active_dims']:.1f}, Sparsity Ratio: {self.sparsity_stats['corpus_sparsity_ratio']:.4f}"
         )
         logger.info(f"Average FLOPS: {self.sparsity_stats['avg_flops']:.2f}")
-        if output_path is not None and self.write_csv:
-            append_to_last_row(os.path.join(output_path, self.csv_file), self.sparsity_stats.values())
 
         return metrics
+
+    def compute_all_metrics(
+        self,
+        model: SparseEncoder,
+        corpus_model: SparseEncoder | None = None,
+        corpus_embeddings: torch.Tensor | None = None,
+        output_path: str | None = None,
+    ) -> dict[str, float]:
+        if corpus_embeddings is not None:
+            corpus_embeddings = corpus_embeddings.cpu()
+            self._record_sparsity_stats(
+                corpus_model if corpus_model is not None else model, corpus_embeddings, "corpus"
+            )
+        return super().compute_all_metrics(
+            model, corpus_model=corpus_model, corpus_embeddings=corpus_embeddings, output_path=output_path
+        )
 
     def embed_inputs(
         self,
@@ -259,8 +274,12 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             max_active_dims=self.max_active_dims,
             **kwargs,
         )
-        stat = model.sparsity(embeddings)
         prefix = "query" if encode_fn_name in ["query", None] else "corpus"
+        self._record_sparsity_stats(model, embeddings, prefix)
+        return embeddings
+
+    def _record_sparsity_stats(self, model: SparseEncoder, embeddings: torch.Tensor, prefix: str) -> None:
+        stat = model.sparsity(embeddings)
         for key, value in stat.items():
             self.sparsity_stats[prefix][key].append(value)
         count_vec = compute_count_vector(embeddings)
@@ -268,13 +287,7 @@ class SparseInformationRetrievalEvaluator(InformationRetrievalEvaluator):
             self.count_vectors[prefix] += count_vec
         else:
             self.count_vectors[prefix] = count_vec
-        self.count_lengths[prefix].append(len(sentences))
-        return embeddings
-
-    def store_metrics_in_model_card_data(
-        self, model: SparseEncoder, metrics: dict[str, Any], epoch: int = 0, step: int = 0
-    ) -> None:
-        model.model_card_data.set_evaluation_metrics(self, metrics, epoch=epoch, step=step)
+        self.count_lengths[prefix].append(len(embeddings))
 
     def get_config_dict(self) -> dict[str, Any]:
         config_dict = super().get_config_dict()

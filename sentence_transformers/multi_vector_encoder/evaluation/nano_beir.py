@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from sentence_transformers.multi_vector_encoder.evaluation.information_retrieval import (
-    MultiVectorInformationRetrievalEvaluator,
-)
+from sentence_transformers.multi_vector_encoder.evaluation.nano_retrieval import MultiVectorNanoRetrievalEvaluator
+from sentence_transformers.multi_vector_encoder.modules import BaseTokenPooling
 from sentence_transformers.sentence_transformer.evaluation.nano_beir import NanoBEIREvaluator
 
-if TYPE_CHECKING:
-    from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
+class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator, MultiVectorNanoRetrievalEvaluator):
+    """Evaluates a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model on NanoBEIR.
 
-class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
-    """Evaluates a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` model on the
-    `NanoBEIR collection <https://huggingface.co/collections/sentence-transformers/nanobeir-datasets>`_.
+    NanoBEIR variants are listed in the
+    `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
+    To evaluate other Nano collections, use :class:`MultiVectorNanoRetrievalEvaluator`.
 
     NanoBEIR is a downsized version of `BEIR <https://github.com/beir-cellar/beir>`_ (around 50 queries
     and 5,000 documents per subset) used for quick retrieval-quality benchmarking before running a
@@ -27,8 +26,8 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
             ``"msmarco"``, ``"nfcorpus"``, ``"nq"``, ``"quoraretrieval"``, ``"scidocs"``,
             ``"arguana"``, ``"scifact"``, ``"touche2020"``). Defaults to every subset.
         dataset_id (str): The HuggingFace dataset ID hosting the corpus / queries / qrels subsets.
-            Defaults to ``"sentence-transformers/NanoBEIR-en"``. Swap in a translated variant from the
-            NanoBEIR collection for non-English evaluation.
+            Defaults to ``"sentence-transformers/NanoBEIR-en"``. Use a translated NanoBEIR variant for
+            non-English evaluation.
         corpus_chunk_size (int): How many documents to encode + score per round-trip. Larger values
             mean more encoded doc embeddings live in memory at once but fewer encode-pass round-trips.
             Defaults to 5000.
@@ -46,12 +45,19 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
         batch_size (int): Per-input batch size used while encoding. Defaults to 32.
         write_csv (bool): Append per-call metric values to a CSV file (one row per evaluation call).
             Defaults to True.
-        truncate_dim (int, optional): Not supported: multi-vector token embeddings have no
-            Matryoshka-style truncation, so any non-None value raises a ValueError. Defaults to None.
+        truncate_dim (int, optional): Truncate and L2-normalize each token embedding before scoring.
+            An explicit dimension is appended to evaluator names. Defaults to None (use the model's
+            default dimension).
+        token_pooling (BaseTokenPooling, optional): Pooling applied during encoding. The pooler's
+            ``tasks`` select which inputs are pooled. Explicit poolers add a short configuration label
+            to evaluator names. Defaults to None (use the model's default pooler).
+        name (str): Optional prefix for aggregate and per-dataset metric names and output files.
+            Use distinct names for poolers with the same short configuration label. Defaults to "".
         score_functions (Dict[str, Callable], optional): Override the default per-subset scoring.
             See :class:`MultiVectorInformationRetrievalEvaluator`. Defaults to None.
-        main_score_function (str or SimilarityFunction, optional): Score-function key to treat as the
-            primary metric for the model card / trainer. Defaults to None.
+        main_score_function (str or SimilarityFunction, optional): The score function to use for the primary metric. If
+            set and ``score_functions`` is provided, must be one of its keys. Defaults to None (select the highest NDCG
+            among the evaluated score functions).
         aggregate_fn (Callable[[List[float]], float]): How to aggregate the per-subset scores into the
             top-level summary. Defaults to ``np.mean``.
         aggregate_key (str): Suffix used in the aggregated metric's key. Defaults to ``"mean"``.
@@ -77,41 +83,33 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator):
             print(results[evaluator.primary_metric])
     """
 
-    information_retrieval_class = MultiVectorInformationRetrievalEvaluator
-
     def __init__(
         self,
         *args,
         corpus_chunk_size: int = 5000,
         chunk_elements: int | None = None,
+        token_pooling: BaseTokenPooling | None = None,
+        name: str = "",
         **kwargs,
     ) -> None:
-        if kwargs.get("truncate_dim") is not None:
-            raise ValueError(
-                "truncate_dim is not supported by MultiVectorEncoder evaluators: multi-vector token "
-                "embeddings have no Matryoshka-style truncation. Remove truncate_dim to evaluate at "
-                "the full dimension."
-            )
-        # Set before super().__init__ because the base initializer iterates ``_load_dataset`` to
-        # construct per-subset IR evaluators, and that needs the extra kwargs.
-        self._ir_extra_kwargs: dict[str, Any] = {
-            "corpus_chunk_size": corpus_chunk_size,
-            "chunk_elements": chunk_elements,
-        }
-        super().__init__(*args, **kwargs)
+        self._name = name
+        super().__init__(
+            *args,
+            corpus_chunk_size=corpus_chunk_size,
+            chunk_elements=chunk_elements,
+            token_pooling=token_pooling,
+            **kwargs,
+        )
+        if name:
+            self.name = f"{name}_{self.name}"
+            self.csv_file = f"{name}_{self.csv_file}"
 
-    def _load_dataset(self, dataset_name: str, **ir_evaluator_kwargs):
-        ir_evaluator_kwargs = {**ir_evaluator_kwargs, **self._ir_extra_kwargs}
-        return super()._load_dataset(dataset_name, **ir_evaluator_kwargs)
+    def _get_human_readable_name(self, dataset_name: str) -> str:
+        name = super()._get_human_readable_name(dataset_name)
+        return f"{self._name}_{name}" if self._name else name
 
-    def __call__(
-        self,
-        model: MultiVectorEncoder,
-        output_path: str | None = None,
-        epoch: int = -1,
-        steps: int = -1,
-        *args,
-        **kwargs,
-    ) -> dict[str, float]:
-        # Overridden only to narrow the model type to MultiVectorEncoder. Behavior is identical to the parent.
-        return super().__call__(model, output_path, epoch, steps, *args, **kwargs)
+    def get_config_dict(self) -> dict[str, Any]:
+        config = super().get_config_dict()
+        if self._name:
+            config["name"] = self._name
+        return config

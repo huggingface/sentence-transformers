@@ -32,7 +32,7 @@ class SequentialEvaluator(BaseEvaluator):
 
     def __init__(self, evaluators: Iterable[BaseEvaluator], main_score_function=lambda scores: scores[-1]):
         super().__init__()
-        self.evaluators = evaluators
+        self.evaluators = list(evaluators)
         self.main_score_function = main_score_function
 
     def __call__(

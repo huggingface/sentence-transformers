@@ -37,7 +37,7 @@ Sentence Transformers supports 3 backends for computing embeddings, each with it
 PyTorch
 -------
 
-The PyTorch backend is the default backend for Sentence Transformers. If you don't specify a device, it will use the strongest available option across "cuda", "mps", and "cpu". Its default usage looks like this:
+The PyTorch backend is the default backend for Sentence Transformers. If you don't specify a device, it will use the first available option among "cuda", "mps", "npu", "xpu", "hpu", "neuron", and "cpu". Its default usage looks like this:
 
 .. code-block:: python
 
@@ -139,13 +139,14 @@ If you're using a GPU, then you can use the following options to speed up your i
 
    .. code-block:: python
 
-      from sentence_transformers import SentenceTransformer, losses
+      from sentence_transformers import SentenceTransformer
+      from sentence_transformers.sentence_transformer.losses import CachedMultipleNegativesRankingLoss
 
       model = SentenceTransformer(
           "answerdotai/ModernBERT-base",
           model_kwargs={"attn_implementation": "flash_attention_2", "torch_dtype": "bfloat16"},
       )
-      loss = losses.CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=32768)
+      loss = CachedMultipleNegativesRankingLoss(model, mini_batch_num_tokens=32768)
 
    Prefer the smallest budget that saturates your GPU: throughput plateaus beyond that point, and budgets that
    push peak memory close to the card's limit gain little and can silently slow training down when the driver
@@ -201,6 +202,41 @@ If you're using a GPU, then you can use the following options to speed up your i
 .. note::
 
    When running a Sentence Transformers model alongside a generative LLM on the same GPU, keep an eye on VRAM usage and generation latency, as the two can contend for memory and compute. For latency-sensitive local setups, moving small embedding models to the CPU can help (e.g. ``SentenceTransformer(..., device="cpu")`` or ``model.encode(..., device="cpu")``).
+
+AWS Trainium
+~~~~~~~~~~~~
+
+`AWS Trainium <https://aws.amazon.com/ai/machine-learning/trainium/>`_ is a family of machine learning accelerators designed by AWS, available on Amazon EC2 Trn instances. Sentence Transformers runs on Trainium through TorchNeuron, the native PyTorch backend for Neuron devices. In PyTorch, Trainium devices use the device name ``"neuron"``.
+
+To get started, install TorchNeuron by following the `AWS Neuron setup guide <https://awsdocs-neuron.readthedocs-hosted.com/en/latest/setup/pytorch/index.html>`_. Once installed, the ``"neuron"`` device is registered automatically when PyTorch is imported:
+
+.. code-block:: python
+
+   from sentence_transformers import SentenceTransformer
+
+   model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="neuron")
+   embeddings = model.encode(["This is an example sentence", "Each sentence is converted"])
+
+You can also move a loaded model with ``model.to("neuron")`` or pass ``device="neuron"`` to ``encode``.
+Without an explicit device, Sentence Transformers selects Neuron when it is available and no higher-priority
+accelerator is available. The first call for a new input shape can take longer while Neuron compiles operations.
+Be sure to warm up representative batches before measuring throughput.
+
+For multi-device inference, run the following example in a fresh Python process. Load the model on CPU so that
+the worker processes can acquire the Neuron cores, and pass the visible logical device indices to ``encode``:
+
+.. code-block:: python
+
+   from sentence_transformers import SentenceTransformer
+
+   if __name__ == "__main__":
+       model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device="cpu")
+       sentences = ["This is an example sentence", "Each sentence is converted"]
+       embeddings = model.encode(sentences, device=["neuron:0", "neuron:1"])
+
+``start_multi_process_pool()`` also detects Neuron devices automatically, using one worker per logical device
+(respecting ``NEURON_RT_VISIBLE_CORES`` if set). Multi-device inference uses independent model replicas. Since
+Neuron cores are reserved per process, start the pool before the parent process uses Neuron.
 
 ONNX
 ----

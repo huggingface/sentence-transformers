@@ -70,7 +70,8 @@ class ListMLELoss(PListMLELoss):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import ListMLELoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -84,7 +85,7 @@ class ListMLELoss(PListMLELoss):
                 })
 
                 # Standard ListMLE loss respecting input order
-                loss = losses.ListMLELoss(model)
+                loss = ListMLELoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,

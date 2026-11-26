@@ -71,7 +71,8 @@ class BatchSemiHardTripletLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import BatchSemiHardTripletLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -86,7 +87,7 @@ class BatchSemiHardTripletLoss(nn.Module):
                     ],
                     "label": [0, 1, 0, 0, 2],
                 })
-                loss = losses.BatchSemiHardTripletLoss(model)
+                loss = BatchSemiHardTripletLoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -96,12 +97,17 @@ class BatchSemiHardTripletLoss(nn.Module):
                 trainer.train()
         """
         super().__init__()
-        self.sentence_embedder = model
+        self.model = model
         self.margin = margin
         self.distance_metric = distance_metric
 
+    @property
+    def sentence_embedder(self) -> SentenceTransformer:
+        """Backward-compatibility alias for :attr:`model`."""
+        return self.model
+
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
-        rep = self.sentence_embedder(sentence_features[0])["sentence_embedding"]
+        rep = self.model(sentence_features[0])["sentence_embedding"]
         return self.compute_loss_from_embeddings([rep], labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
@@ -119,6 +125,14 @@ class BatchSemiHardTripletLoss(nn.Module):
         Returns:
             Label_Sentence_Triplet: scalar tensor containing the triplet loss
         """
+        batch_size = embeddings.shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
+        labels = labels.view(-1)
+
         labels = labels.unsqueeze(1)
 
         pdist_matrix = self.distance_metric(embeddings)

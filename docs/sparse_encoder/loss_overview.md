@@ -61,6 +61,16 @@ These loss functions are specifically designed to be used when distilling the kn
 | `(query, positive, negative)`                     | `[gold_sim(query, positive), gold_sim(query, negative)]`                  | <a href="../package_reference/sparse_encoder/losses.html#sparsedistillkldivloss">`SparseDistillKLDivLoss`</a><br><a href="../package_reference/sparse_encoder/losses.html#sparsemarginmseloss">`SparseMarginMSELoss`</a> |
 | `(query, positive, negative_1, ..., negative_n) ` | `[gold_sim(query, positive), gold_sim(query, negative_i)...] `            | <a href="../package_reference/sparse_encoder/losses.html#sparsedistillkldivloss">`SparseDistillKLDivLoss`</a><br><a href="../package_reference/sparse_encoder/losses.html#sparsemarginmseloss">`SparseMarginMSELoss`</a> |
 
+## Loss modifiers
+
+These loss functions act as *loss modifiers*: they work on top of a main loss, applying it in different ways to train useful properties into the embeddings.
+
+| Inputs | Labels | Appropriate Loss Functions |
+|--------|--------|----------------------------|
+| `any` | `any` | <a href="../package_reference/sparse_encoder/losses.html#sparsematryoshkaloss">`SparseMatryoshkaLoss`</a> |
+
+See the [Sparse Matryoshka example](../../examples/sparse_encoder/training/matryoshka/README.md) for training on GooAQ with hard negatives at multiple active dimension budgets and comparing against a baseline.
+
 ## Commonly used Loss Functions
 
 In practice, not all loss functions get used equally often. The most common scenarios are:

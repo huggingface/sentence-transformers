@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This example runs a BiLSTM after the word embedding lookup. The output of the BiLSTM is than pooled,
 for example with max-pooling (which gives a system like InferSent) or with mean-pooling.
@@ -94,7 +100,7 @@ final_output_dir = f"{output_dir}/final"
 model.save(final_output_dir)
 
 # 8. (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = "glove-bilstm-sts"
 try:
     model.push_to_hub(model_name)

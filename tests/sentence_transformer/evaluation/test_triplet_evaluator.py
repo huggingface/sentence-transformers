@@ -7,7 +7,9 @@ from __future__ import annotations
 import pytest
 
 from sentence_transformers import SentenceTransformer
+from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorTripletEvaluator
 from sentence_transformers.sentence_transformer.evaluation import TripletEvaluator
+from sentence_transformers.sparse_encoder.evaluation import SparseTripletEvaluator
 
 
 def test_TripletEvaluator(stsb_bert_tiny_model: SentenceTransformer) -> None:
@@ -38,6 +40,14 @@ def test_TripletEvaluator(stsb_bert_tiny_model: SentenceTransformer) -> None:
     assert metrics[evaluator.primary_metric] == 0.0
 
 
+def test_triplet_evaluator_main_similarity_function_is_evaluated(stsb_bert_tiny_model: SentenceTransformer) -> None:
+    # The model scores with cosine, so the requested euclidean accuracy must still be computed
+    evaluator = TripletEvaluator(["a"], ["b"], ["c"], main_similarity_function="euclidean", name="dev")
+    metrics = evaluator(stsb_bert_tiny_model)
+    assert evaluator.primary_metric == "dev_euclidean_accuracy"
+    assert evaluator.primary_metric in metrics
+
+
 def test_triplet_evaluator_config_dict_margin() -> None:
     # The default margin is derived from _get_similarity_functions(), so it must stay recognized as
     # the default here rather than being reported as a configured margin.
@@ -58,3 +68,17 @@ def test_triplet_evaluator_rejects_unknown_similarity_fn_names() -> None:
     # the same typo, and only fails deep in __call__ at scoring time.
     with pytest.raises(ValueError, match=r"unexpected names \['cosin'\]"):
         TripletEvaluator(anchors=["a"], positives=["p"], negatives=["n"], similarity_fn_names=["cosin"])
+
+
+@pytest.mark.parametrize("evaluator_cls", [TripletEvaluator, SparseTripletEvaluator, MultiVectorTripletEvaluator])
+@pytest.mark.parametrize(
+    ("anchors", "positives", "negatives", "message"),
+    [
+        ([], [], [], "at least one"),
+        (["a"], ["b", "c"], ["d"], "must have the same length"),
+        (["a"], ["b"], ["c", "d"], "must have the same length"),
+    ],
+)
+def test_triplet_rejects_invalid_inputs(evaluator_cls, anchors, positives, negatives, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        evaluator_cls(anchors, positives, negatives)

@@ -88,7 +88,8 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainingArguments, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainingArguments, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import MegaBatchMarginLoss
                 from datasets import Dataset
 
                 train_batch_size = 250
@@ -99,7 +100,7 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
                     "anchor": [f"This is sentence number {i}" for i in range(500)],
                     "positive": [f"This is sentence number {i}" for i in range(1, 501)],
                 })
-                loss = losses.MegaBatchMarginLoss(model=model, mini_batch_size=train_mini_batch_size)
+                loss = MegaBatchMarginLoss(model=model, mini_batch_size=train_mini_batch_size)
 
                 args = SentenceTransformerTrainingArguments(
                     output_dir="output",
@@ -128,9 +129,6 @@ class MegaBatchMarginLoss(CachedLossMixin, nn.Module):
         self.mini_batch_size = mini_batch_size
         self.mini_batch_num_tokens = mini_batch_num_tokens
         self.show_progress_bar = show_progress_bar
-        # Both only apply to the mini-batched path: without it there is nothing to slice, and the
-        # backward pass runs straight from the returned loss rather than from a hook.
-        self.requires_media_counts = use_mini_batched_version
         self.uses_gradient_cache = use_mini_batched_version
         self.forward = self.forward_mini_batched if use_mini_batched_version else self.forward_non_mini_batched
 

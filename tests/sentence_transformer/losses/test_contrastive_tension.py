@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pytest
+import torch
 
-from sentence_transformers.sentence_transformer.losses import ContrastiveTensionDataLoader
+from sentence_transformers.sentence_transformer.losses import ContrastiveTensionDataLoader, ContrastiveTensionLoss
 
 
 @pytest.mark.parametrize(
@@ -40,3 +41,24 @@ def test_contrastive_tension_keeps_final_positive_pair():
     batches = list(iter(loader))
     assert len(batches) == 1
     assert {example.texts[0] for example in batches[0]} == {"one", "two"}
+
+
+@pytest.mark.parametrize("batch_size", [1, 4])
+def test_contrastive_tension_column_and_inferred_labels(batch_size):
+    features = [
+        {"sentence_embedding": torch.randn(batch_size, 8), "input_ids": torch.arange(batch_size)[:, None]},
+        {"sentence_embedding": torch.randn(batch_size, 8), "input_ids": torch.zeros(batch_size, 1, dtype=torch.long)},
+    ]
+    labels = (features[0]["input_ids"] == features[1]["input_ids"]).all(dim=1).float()
+    loss = ContrastiveTensionLoss(torch.nn.Identity())
+    expected = loss(features, labels)
+    torch.testing.assert_close(loss(features, labels[:, None]), expected)
+    torch.testing.assert_close(loss(features, None), expected)
+
+
+@pytest.mark.parametrize("batch_size", [1, 4])
+def test_contrastive_tension_multiple_labels_per_row_raise(batch_size):
+    features = [{"sentence_embedding": torch.randn(batch_size, 8)} for _ in range(2)]
+    loss = ContrastiveTensionLoss(torch.nn.Identity())
+    with pytest.raises(ValueError, match="Target size"):
+        loss(features, torch.zeros(batch_size, 3))

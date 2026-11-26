@@ -53,7 +53,8 @@ class CosineSimilarityLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -62,7 +63,7 @@ class CosineSimilarityLoss(nn.Module):
                     "sentence2": ["It's so sunny.", "She walked to the store."],
                     "score": [1.0, 0.3],
                 })
-                loss = losses.CosineSimilarityLoss(model)
+                loss = CosineSimilarityLoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -92,6 +93,12 @@ class CosineSimilarityLoss(nn.Module):
         Returns:
             Loss value
         """
+        batch_size = embeddings[0].shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
         output = self.cos_score_transformation(torch.cosine_similarity(embeddings[0], embeddings[1]))
         return self.loss_fct(output, labels.float().view(-1))
 

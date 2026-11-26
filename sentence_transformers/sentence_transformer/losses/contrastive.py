@@ -62,7 +62,8 @@ class ContrastiveLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import ContrastiveLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -71,7 +72,7 @@ class ContrastiveLoss(nn.Module):
                     "sentence2": ["It's so sunny.", "She walked to the store."],
                     "label": [1, 0],
                 })
-                loss = losses.ContrastiveLoss(model)
+                loss = ContrastiveLoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -101,6 +102,13 @@ class ContrastiveLoss(nn.Module):
         return self.compute_loss_from_embeddings(embeddings, labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
+        batch_size = embeddings[0].shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
+        labels = labels.view(-1)
         if not self._checked_labels:
             self._checked_labels = True
             if labels.ne(0).logical_and(labels.ne(1)).any().item():

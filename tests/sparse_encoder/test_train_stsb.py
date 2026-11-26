@@ -6,8 +6,8 @@ import pytest
 from datasets import Dataset, DatasetDict
 
 from sentence_transformers import SparseEncoder, SparseEncoderTrainer, SparseEncoderTrainingArguments
-from sentence_transformers.sparse_encoder import losses
 from sentence_transformers.sparse_encoder.evaluation import SparseEmbeddingSimilarityEvaluator
+from sentence_transformers.sparse_encoder.losses import SparseMultipleNegativesRankingLoss, SpladeLoss
 from sentence_transformers.util import is_training_available
 
 if not is_training_available():
@@ -47,9 +47,9 @@ def test_train_stsb_slow(splade_bert_tiny_model: SparseEncoder, stsb_dataset_dic
     train_dataset = stsb_dataset_dict["train"]
     test_dataset = stsb_dataset_dict["test"]
 
-    loss = losses.SpladeLoss(
+    loss = SpladeLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        loss=SparseMultipleNegativesRankingLoss(model=model),
         document_regularizer_weight=3e-5,
         query_regularizer_weight=5e-5,
     )
@@ -82,9 +82,9 @@ def test_train_stsb(splade_bert_tiny_model: SparseEncoder, stsb_dataset_dict: Da
     train_dataset = stsb_dataset_dict["train"].select(range(100))
     test_dataset = stsb_dataset_dict["test"]
 
-    loss = losses.SpladeLoss(
+    loss = SpladeLoss(
         model=model,
-        loss=losses.SparseMultipleNegativesRankingLoss(model=model),
+        loss=SparseMultipleNegativesRankingLoss(model=model),
         document_regularizer_weight=3e-5,
         query_regularizer_weight=5e-5,
     )

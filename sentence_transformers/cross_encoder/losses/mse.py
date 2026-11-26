@@ -43,7 +43,8 @@ class MSELoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import MSELoss
                 from datasets import Dataset
 
                 student_model = CrossEncoder("microsoft/mpnet-base")
@@ -59,7 +60,7 @@ class MSELoss(nn.Module):
                     }
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.MSELoss(student_model)
+                loss = MSELoss(student_model)
 
                 trainer = CrossEncoderTrainer(
                     model=student_model,
@@ -98,6 +99,13 @@ class MSELoss(nn.Module):
         inputs = batch_to_device(inputs, self.model.device)
         logits = self.model(inputs)["scores"].view(-1)
         logits = self.activation_fn(logits)
+        batch_size = logits.shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
+        labels = labels.view(-1)
         loss = self.loss_fct(logits, labels.detach().float())
         return loss
 

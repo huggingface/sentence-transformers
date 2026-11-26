@@ -79,6 +79,13 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
             partition_mode: How to normalize the scores (the softmax denominator):
                 - "joint": One joint softmax over all selected directions.
                 - "per_direction": One softmax per direction. A loss is computed for each direction and then averaged.
+            hardness_mode: Strategy for applying hardness weighting. ``None`` (default) disables it. Options are
+                ``"in_batch_negatives"``, ``"hard_negatives"`` and ``"all_negatives"``, which add
+                ``hardness_strength * stop_grad(similarity)`` to the logits of the in-batch negatives, the explicit hard
+                negatives, or all negatives respectively. Here, ``similarity`` is the unscaled output
+                of ``similarity_fct`` (dot product by default). See :class:`MultipleNegativesRankingLoss` for details.
+            hardness_strength: Non-negative strength of the hardness weighting. Ignored when ``hardness_mode`` is
+                ``None``.
 
         Requirements:
             1. Need to be used in SpladeLoss or CSRLoss as a loss function.
@@ -111,7 +118,8 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
 
                 from datasets import Dataset
 
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseMultipleNegativesRankingLoss, SpladeLoss
 
                 model = SparseEncoder("distilbert/distilbert-base-uncased")
                 train_dataset = Dataset.from_dict(
@@ -120,8 +128,8 @@ class SparseMultipleNegativesRankingLoss(MultipleNegativesRankingLoss):
                         "positive": ["It's so sunny.", "He took the car to the office."],
                     }
                 )
-                loss = losses.SpladeLoss(
-                    model=model, loss=losses.SparseMultipleNegativesRankingLoss(model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
+                loss = SpladeLoss(
+                    model=model, loss=SparseMultipleNegativesRankingLoss(model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
                 )
 
                 trainer = SparseEncoderTrainer(model=model, train_dataset=train_dataset, loss=loss)

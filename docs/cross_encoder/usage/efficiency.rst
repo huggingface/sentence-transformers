@@ -34,7 +34,7 @@ Sentence Transformers supports 3 backends for performing inference with Cross En
 PyTorch
 -------
 
-The PyTorch backend is the default backend for Cross Encoders. If you don't specify a device, it will use the strongest available option across "cuda", "mps", and "cpu". Its default usage looks like this:
+The PyTorch backend is the default backend for Cross Encoders. If you don't specify a device, it will use the first available option among "cuda", "mps", "npu", "xpu", "hpu", "neuron", and "cpu". Its default usage looks like this:
 
 .. code-block:: python
 
@@ -165,6 +165,44 @@ If you're using a GPU, then you can use the following options to speed up your i
    than not compiling at all. CUDA graphs also reuse output buffers, so clone anything you keep across calls (the
    default ``convert_to_numpy=True`` already copies off the GPU and is safe). Compilation is lazy, so warm the model
    up on representative inputs before benchmarking or serving.
+
+AWS Trainium
+~~~~~~~~~~~~
+
+`AWS Trainium <https://aws.amazon.com/ai/machine-learning/trainium/>`_ is a family of machine learning accelerators designed by AWS, available on Amazon EC2 Trn instances. Sentence Transformers runs on Trainium through TorchNeuron, the native PyTorch backend for Neuron devices. In PyTorch, Trainium devices use the device name ``"neuron"``.
+
+To get started, install TorchNeuron by following the `AWS Neuron setup guide <https://awsdocs-neuron.readthedocs-hosted.com/en/latest/setup/pytorch/index.html>`_. Once installed, the ``"neuron"`` device is registered automatically when PyTorch is imported:
+
+.. code-block:: python
+
+   from sentence_transformers import CrossEncoder
+
+   model = CrossEncoder("Qwen/Qwen3-Reranker-0.6B", device="neuron")
+   query = "Which planet is known as the Red Planet?"
+   documents = ["Mars is known as the Red Planet.", "Venus is often called Earth's twin."]
+   ranks = model.rank(query, documents)
+
+You can also move a loaded model with ``model.to("neuron")`` or pass ``device="neuron"`` to ``predict``.
+Without an explicit device, Sentence Transformers selects Neuron when it is available and no higher-priority
+accelerator is available. The first call for a new input shape can take longer while Neuron compiles operations.
+Be sure to warm up representative batches before measuring throughput.
+
+For multi-device inference, run the following example in a fresh Python process. Load the model on CPU so that
+the worker processes can acquire the Neuron cores, and pass the visible logical device indices to ``predict``:
+
+.. code-block:: python
+
+   from sentence_transformers import CrossEncoder
+
+   if __name__ == "__main__":
+       model = CrossEncoder("Qwen/Qwen3-Reranker-0.6B", device="cpu")
+       query = "Which planet is known as the Red Planet?"
+       documents = ["Mars is known as the Red Planet.", "Venus is often called Earth's twin."]
+       scores = model.predict([(query, document) for document in documents], device=["neuron:0", "neuron:1"])
+
+``start_multi_process_pool()`` also detects Neuron devices automatically, using one worker per logical device
+(respecting ``NEURON_RT_VISIBLE_CORES`` if set). Multi-device inference uses independent model replicas. Since
+Neuron cores are reserved per process, start the pool before the parent process uses Neuron.
 
 ONNX
 ----

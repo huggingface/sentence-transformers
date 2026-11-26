@@ -244,10 +244,7 @@ class TestGenerateUsageSnippetCrossEncoder:
 
     def test_cross_encoder_multimodal_pairs(self) -> None:
         """Multimodal pairs use _format_snippet_value for non-text elements and skip rank section."""
-        try:
-            from PIL import Image as PILModule
-        except ImportError:
-            pytest.skip("Pillow not installed")
+        PILModule = pytest.importorskip("PIL.Image", reason="Pillow not installed", exc_type=ImportError)
 
         data = CrossEncoderModelCardData()
         data.model_id = "user/multimodal-ce"
@@ -270,10 +267,7 @@ class TestGenerateUsageSnippetCrossEncoder:
 
     def test_cross_encoder_multimodal_run_usage_snippet(self, reranker_bert_tiny_model: CrossEncoder) -> None:
         """run_usage_snippet with multimodal pairs gracefully falls back when predict fails."""
-        try:
-            from PIL import Image as PILModule
-        except ImportError:
-            pytest.skip("Pillow not installed")
+        PILModule = pytest.importorskip("PIL.Image", reason="Pillow not installed", exc_type=ImportError)
 
         model = reranker_bert_tiny_model
         model.model_card_data.usage_examples = [

@@ -81,7 +81,8 @@ class ADRMSELoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import ADRMSELoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -93,7 +94,7 @@ class ADRMSELoss(nn.Module):
                     ],
                     "scores": [[0.95, 0.1], [0.98, 0.92, 0.2]],
                 })
-                loss = losses.ADRMSELoss(model)
+                loss = ADRMSELoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,
@@ -138,6 +139,8 @@ class ADRMSELoss(nn.Module):
         Args:
             inputs: List of (queries, documents_list)
             labels: Ground truth relevance scores, shape (batch_size, num_documents)
+            prompt: Optional prompt passed to the model's preprocessing of the (query, document) pairs.
+            task: Optional task passed to the model's preprocessing of the (query, document) pairs.
 
         Returns:
             Tensor: Mean ADR-MSE loss over the batch

@@ -47,7 +47,7 @@ For example, when finetuning a small model to behave more like a larger & strong
 In practice, not all loss functions get used equally often. The most common scenarios are:
 
 - `(input_A, input_B) pairs` with `float similarity score` or `1 if positive, 0 if negative`: <a href="../package_reference/cross_encoder/losses.html#binarycrossentropyloss"><code>BinaryCrossEntropyLoss</code></a> is a traditional option that remains very challenging to outperform.
-- `(anchor, positive) pairs` without any labels: combined with <a href="../package_reference/util.html#sentence_transformers.util.hard_negatives.mine_hard_negatives"><code>mine_hard_negatives</code></a>
+- `(anchor, positive) pairs` without any labels: combined with <a href="../package_reference/util/hard_negatives.html#sentence_transformers.util.hard_negatives.mine_hard_negatives"><code>mine_hard_negatives</code></a>
   - with <code>output_format="labeled-list"</code>, then <a href="../package_reference/cross_encoder/losses.html#lambdaloss"><code>LambdaLoss</code></a> is frequently used for learning-to-rank tasks.
   - with <code>output_format="labeled-pair"</code>, then <a href="../package_reference/cross_encoder/losses.html#binarycrossentropyloss"><code>BinaryCrossEntropyLoss</code></a> remains a strong option.
 

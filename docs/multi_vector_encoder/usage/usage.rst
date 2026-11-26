@@ -19,6 +19,11 @@ Once you have `installed <../../installation.html>`_ Sentence Transformers, you 
    5. :meth:`MultiVectorEncoder.similarity <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.similarity>`
    6. :meth:`MultiVectorEncoder.similarity_pairwise <sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder.similarity_pairwise>`
    7. :doc:`Speeding up Inference <efficiency>`
+   8. :doc:`Kernel acceleration <kernels>`
+
+   .. tip::
+
+      Log in with ``hf auth login`` for higher Hugging Face Hub rate limits and access to private or gated models your account can read. See the `login instructions <../../installation.html#log-in-to-hugging-face>`_.
 
 ::
 
@@ -199,3 +204,4 @@ Multi-vector models can be loaded from any of the following sources, transparent
    ../../../examples/multi_vector_encoder/applications/README
    ../../../examples/multi_vector_encoder/evaluation/README
    custom_models
+   kernels

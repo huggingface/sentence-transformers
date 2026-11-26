@@ -5,6 +5,21 @@
 [Training Overview](../../multi_vector_encoder/training_overview.md) for guidance on which loss to
 pick for which dataset format.
 
+## MultiVectorDistillKLDivLoss
+```{eval-rst}
+.. autoclass:: sentence_transformers.multi_vector_encoder.losses.MultiVectorDistillKLDivLoss
+```
+
+## MultiVectorMarginMSELoss
+```{eval-rst}
+.. autoclass:: sentence_transformers.multi_vector_encoder.losses.MultiVectorMarginMSELoss
+```
+
+## MultiVectorMatryoshkaLoss
+```{eval-rst}
+.. autoclass:: sentence_transformers.multi_vector_encoder.losses.MultiVectorMatryoshkaLoss
+```
+
 ## MultiVectorMultipleNegativesRankingLoss
 ```{eval-rst}
 .. autoclass:: sentence_transformers.multi_vector_encoder.losses.MultiVectorMultipleNegativesRankingLoss
@@ -15,12 +30,7 @@ pick for which dataset format.
 .. autoclass:: sentence_transformers.multi_vector_encoder.losses.CachedMultiVectorMultipleNegativesRankingLoss
 ```
 
-## MultiVectorDistillKLDivLoss
+## MultiVectorTokenPoolingLoss
 ```{eval-rst}
-.. autoclass:: sentence_transformers.multi_vector_encoder.losses.MultiVectorDistillKLDivLoss
-```
-
-## MultiVectorMarginMSELoss
-```{eval-rst}
-.. autoclass:: sentence_transformers.multi_vector_encoder.losses.MultiVectorMarginMSELoss
+.. autoclass:: sentence_transformers.multi_vector_encoder.losses.MultiVectorTokenPoolingLoss
 ```

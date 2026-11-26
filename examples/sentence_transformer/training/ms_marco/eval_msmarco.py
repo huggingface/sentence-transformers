@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This script runs the evaluation of an SBERT msmarco model on the
 MS MARCO dev dataset and reports different performance metrics for cosine similarity & dot-product.

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
 import torch
 
 from sentence_transformers.sentence_transformer.evaluation import TranslationEvaluator
-from sentence_transformers.util import append_to_last_row
 
 if TYPE_CHECKING:
     import numpy as np
@@ -26,9 +24,8 @@ class SparseTranslationEvaluator(TranslationEvaluator):
 
     Given two sets of sentences in different languages, e.g. (en_1, en_2, en_3...) and (fr_1, fr_2, fr_3, ...),
     and assuming that fr_i is the translation of en_i.
-    Checks if vec(en_i) has the highest similarity to vec(fr_i). Computes the accuracy in both directions
-
-    The labels need to indicate the similarity between the sentences.
+    Checks whether the most similar sentence has the same text as the expected translation.
+    Computes accuracy in both directions.
 
     Args:
         source_sentences (List[str]): List of sentences in the source language.
@@ -104,24 +101,18 @@ class SparseTranslationEvaluator(TranslationEvaluator):
         )
         self.csv_headers.extend(["active_dims", "sparsity_ratio"])
 
-    def __call__(
+    def evaluate(
         self, model: SparseEncoder, output_path: str | None = None, epoch: int = -1, steps: int = -1
     ) -> dict[str, float]:
         self.sparsity_stats = defaultdict(list)
-        metrics = super().__call__(model=model, output_path=output_path, epoch=epoch, steps=steps)
+        metrics = super().evaluate(model=model, output_path=output_path, epoch=epoch, steps=steps)
         for key, value in self.sparsity_stats.items():
             self.sparsity_stats[key] = sum(value) / len(value)
 
-        metrics.update(self.prefix_name_to_metrics(self.sparsity_stats, self.name))
-        self.store_metrics_in_model_card_data(model, metrics, epoch, steps)
+        metrics.update(self.sparsity_stats)
         logger.info(
             f"Model Sparsity: Active Dimensions: {self.sparsity_stats['active_dims']:.1f}, Sparsity Ratio: {self.sparsity_stats['sparsity_ratio']:.4f}"
         )
-        if output_path is not None and self.write_csv:
-            append_to_last_row(
-                os.path.join(output_path, self.csv_file),
-                [self.sparsity_stats["active_dims"], self.sparsity_stats["sparsity_ratio"]],
-            )
 
         return metrics
 
@@ -145,11 +136,6 @@ class SparseTranslationEvaluator(TranslationEvaluator):
         for key, value in stat.items():
             self.sparsity_stats[key].append(value)
         return embeddings
-
-    def store_metrics_in_model_card_data(
-        self, model: SparseEncoder, metrics: dict[str, Any], epoch: int = 0, step: int = 0
-    ) -> None:
-        model.model_card_data.set_evaluation_metrics(self, metrics, epoch=epoch, step=step)
 
     def get_config_dict(self) -> dict[str, Any]:
         config_dict = super().get_config_dict()

@@ -122,7 +122,7 @@ class DenoisingAutoEncoderLoss(nn.Module):
                 "DenoisingAutoEncoderLoss is not compatible with a SentenceTransformer model based on a StaticEmbedding."
             )
 
-        self.encoder = model  # This will be the final model used during the inference time.
+        self.model = model
         self.tokenizer_encoder = model.tokenizer
 
         encoder_name_or_path = model.transformers_model.config._name_or_path
@@ -172,6 +172,11 @@ class DenoisingAutoEncoderLoss(nn.Module):
             decoder_base = self.decoder._modules[self.decoder.base_model_prefix]
             _tie_encoder_decoder_weights(model.transformers_model, decoder_base)
 
+    @property
+    def encoder(self) -> SentenceTransformer:
+        """Backward-compatibility alias for :attr:`model`."""
+        return self.model
+
     def retokenize(self, sentence_features: dict[str, Tensor]) -> dict[str, Tensor]:
         input_ids = sentence_features["input_ids"]
         device = input_ids.device
@@ -189,7 +194,7 @@ class DenoisingAutoEncoderLoss(nn.Module):
             # since the sentence_features here are all tokenized by encoder's tokenizer,
             # retokenization by the decoder's one is needed if different tokenizers used
             target_features = self.retokenize(target_features)
-        reps = self.encoder(source_features)["sentence_embedding"]  # (bsz, hdim)
+        reps = self.model(source_features)["sentence_embedding"]  # (bsz, hdim)
 
         # Prepare input and output
         target_length = target_features["input_ids"].shape[1]

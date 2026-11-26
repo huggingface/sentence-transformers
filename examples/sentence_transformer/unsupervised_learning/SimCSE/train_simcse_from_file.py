@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This file loads sentences from a provided text file. It is expected, that the there is one sentence per line in that text file.
 
@@ -99,7 +105,7 @@ final_output_dir = f"{model_output_path}/final"
 model.save_pretrained(final_output_dir)
 
 # (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
 try:
     model.push_to_hub(f"{model_name}-simcse")

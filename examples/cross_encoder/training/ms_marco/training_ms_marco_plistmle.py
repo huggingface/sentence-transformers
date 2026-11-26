@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 import logging
 import traceback
 
@@ -94,8 +100,9 @@ def main():
     loss = PListMLELoss(model, mini_batch_size=mini_batch_size, respect_input_order=respect_input_order)
 
     # Option 2: Position-Aware ListMLE with custom weighting function (NDCG-like)
-    # def custom_discount(ranks):
-    #     return 1.0 / torch.log1p(ranks)
+    # def custom_discount(mask):
+    #     ranks = mask.cumsum(dim=-1)
+    #     return (1.0 / torch.log1p(ranks)).masked_fill(~mask, 0)
 
     # from sentence_transformers.cross_encoder.losses import PListMLELambdaWeight
     # lambda_weight = PListMLELambdaWeight(rank_discount_fn=custom_discount)
@@ -157,7 +164,7 @@ def main():
     model.save_pretrained(final_output_dir)
 
     # 9. (Optional) save the model to the Hugging Face Hub!
-    # It is recommended to run `hf auth login` to log into your Hugging Face account first
+    # Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
     try:
         model.push_to_hub(run_name)
     except Exception:

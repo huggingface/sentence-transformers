@@ -9,6 +9,8 @@ import pytest
 
 from sentence_transformers import SentenceTransformer
 from sentence_transformers.sentence_transformer.evaluation import EmbeddingSimilarityEvaluator
+from sentence_transformers.sentence_transformer.modules import BoW
+from sentence_transformers.sparse_encoder.evaluation import SparseEmbeddingSimilarityEvaluator
 
 SENTENCES1 = ["A person on a horse jumps over a broken down airplane.", "Children smiling and waving at camera"]
 SENTENCES2 = ["A person is outdoors, on a horse.", "A person is at a diner, ordering an omelette."]
@@ -31,3 +33,47 @@ def test_embedding_similarity_evaluator_precisions(
 
     assert evaluator.primary_metric in metrics
     assert np.isfinite(metrics[evaluator.primary_metric])
+
+
+@pytest.mark.parametrize("precision", ["int8", "uint8"])
+def test_embedding_similarity_evaluator_shared_quantization_ranges(precision: str) -> None:
+    """Reversing a pair must not change the calibration or its symmetric similarity."""
+    model = SentenceTransformer(modules=[BoW(["apple", "banana", "orange"])], device="cpu")
+    sentences1 = ["apple", "banana", "apple banana", "orange"]
+    sentences2 = ["apple orange", "banana orange", "apple banana", "apple banana orange"]
+    scores = [0.7, 0.7, 1.0, 0.6]
+    evaluator = EmbeddingSimilarityEvaluator(
+        sentences1=sentences1,
+        sentences2=sentences2,
+        scores=scores,
+        precision=precision,
+        similarity_fn_names=["cosine", "dot", "euclidean", "manhattan"],
+        write_csv=False,
+    )
+    metrics = evaluator(model)
+
+    sentences1[0], sentences2[0] = sentences2[0], sentences1[0]
+    reversed_evaluator = EmbeddingSimilarityEvaluator(
+        sentences1=sentences1,
+        sentences2=sentences2,
+        scores=scores,
+        precision=precision,
+        similarity_fn_names=["cosine", "dot", "euclidean", "manhattan"],
+        write_csv=False,
+    )
+
+    assert reversed_evaluator(model) == pytest.approx(metrics)
+
+
+@pytest.mark.parametrize("evaluator_cls", [EmbeddingSimilarityEvaluator, SparseEmbeddingSimilarityEvaluator])
+@pytest.mark.parametrize(
+    ("sentences1", "sentences2", "scores", "message"),
+    [
+        ([], [], [], "at least one"),
+        (["a"], ["b", "c"], [0.5], "must have the same length"),
+        (["a"], ["b"], [0.5, 1.0], "must have the same length"),
+    ],
+)
+def test_embedding_similarity_rejects_invalid_inputs(evaluator_cls, sentences1, sentences2, scores, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        evaluator_cls(sentences1, sentences2, scores)

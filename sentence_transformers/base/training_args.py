@@ -5,7 +5,7 @@ import logging
 import multiprocessing
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Union
+from typing import Any, Union
 
 from packaging.version import parse as parse_version
 from transformers import TrainingArguments as TransformersTrainingArguments
@@ -59,10 +59,14 @@ class BaseTrainingArguments(TransformersTrainingArguments):
             2. `Dict[str, Dict[str, str]]`: A mapping of dataset names to a mapping of column names to routes for
                multi-dataset training/evaluation.
         learning_rate_mapping (`Dict[str, float] | None`, *optional*):
-            A mapping of parameter name regular expressions to learning rates. This allows you to set different
-            learning rates for different parts of the model, e.g., `{'SparseStaticEmbedding\.*': 1e-3}` for the
-            SparseStaticEmbedding module. This is useful when you want to fine-tune specific parts of the model
-            with different learning rates.
+            A mapping of parameter name regular expressions to learning rates, e.g.,
+            `{r'sub_modules\.query\.': 1e-3}` for the query route of a Router.
+        activation_checkpointing (`bool`, *optional*, defaults to `False`):
+            Recompute activations during the backward pass to reduce memory usage at the cost of slower training.
+            This name also works on older Transformers versions. The legacy name ``gradient_checkpointing`` is supported too.
+        activation_checkpointing_kwargs (`dict`, *optional*):
+            Keyword arguments passed to the model's checkpointing method. The legacy name
+            ``gradient_checkpointing_kwargs`` is also supported. When both names are provided, the new name takes priority.
     """
 
     # Sometimes users will pass in a `str` repr of a dict in the CLI
@@ -73,6 +77,7 @@ class BaseTrainingArguments(TransformersTrainingArguments):
         "accelerator_config",
         "fsdp_config",
         "deepspeed",
+        "activation_checkpointing_kwargs",
         "gradient_checkpointing_kwargs",
         "lr_scheduler_kwargs",
         "learning_rate_mapping",
@@ -107,11 +112,23 @@ class BaseTrainingArguments(TransformersTrainingArguments):
     learning_rate_mapping: Union[str, None, dict[str, float]] = field(  # noqa: UP007
         default_factory=dict,
         metadata={
-            "help": "A mapping of parameter name regular expressions to learning rates. "
-            "This allows you to set different learning rates for different parts of the model, e.g., "
-            r"{'SparseStaticEmbedding\.*': 1e-3} for the SparseStaticEmbedding module."
+            "help": "A mapping of parameter name regular expressions to learning rates, e.g., "
+            r"{r'sub_modules\.query\.': 1e-3} for the query route of a Router."
         },
     )
+    activation_checkpointing: bool | None = field(
+        default=None,
+        metadata={
+            "help": "Enable activation checkpointing to reduce memory usage at the cost of slower training.",
+            "nargs": "?",
+            "const": True,
+        },
+    )
+    activation_checkpointing_kwargs: Union[dict[str, Any], str, None] = field(  # noqa: UP007
+        default=None,
+        metadata={"help": "Keyword arguments passed to the model's checkpointing method."},
+    )
+
     # Explicitly add warmup_ratio as transformers will remove it in the future, and I'd like to keep it until Sentence
     # Transformers drops support for transformers v4. The default mirrors that of transformers, regardless of version.
     warmup_ratio: float | None = field(
@@ -123,6 +140,12 @@ class BaseTrainingArguments(TransformersTrainingArguments):
     )
 
     def __post_init__(self):
+        if not hasattr(TransformersTrainingArguments, "activation_checkpointing"):
+            if self.activation_checkpointing is not None:
+                self.gradient_checkpointing = self.activation_checkpointing
+            if self.activation_checkpointing_kwargs is not None:
+                self.gradient_checkpointing_kwargs = self.activation_checkpointing_kwargs
+
         # Handle compatibility for warmup arguments across different transformers versions. Transformers v5+ only
         # supports warmup_steps (which can be an int or a float ratio) and removes warmup_ratio, while older versions
         # only support warmup_ratio and warmup_steps as an int number of steps. The logic here ensures that users can
@@ -150,6 +173,10 @@ class BaseTrainingArguments(TransformersTrainingArguments):
                 self.warmup_steps = 0  # Set to default
 
         super().__post_init__()
+
+        if not hasattr(TransformersTrainingArguments, "activation_checkpointing"):
+            self.activation_checkpointing = self.gradient_checkpointing
+            self.activation_checkpointing_kwargs = self.gradient_checkpointing_kwargs
 
         self.batch_sampler = (
             BatchSamplers(self.batch_sampler) if isinstance(self.batch_sampler, str) else self.batch_sampler

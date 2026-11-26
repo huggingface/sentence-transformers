@@ -67,4 +67,5 @@ class Normalize(Module):
             revision=revision,
             local_files_only=local_files_only,
         )
+        config = {key: value for key, value in config.items() if key in cls.config_keys}
         return cls(**config)

@@ -113,7 +113,8 @@ class BaseDataCollator:
         # Extract the label column if it exists
         for label_column in self.valid_label_columns:
             if label_column in column_names:
-                batch["label"] = torch.tensor([row[label_column] for row in features])
+                labels = [row[label_column] for row in features]
+                batch["label"] = torch.stack(labels) if isinstance(labels[0], torch.Tensor) else torch.tensor(labels)
                 column_names.remove(label_column)
                 break
 

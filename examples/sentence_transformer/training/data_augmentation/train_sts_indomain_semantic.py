@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 The script shows how to train Augmented SBERT (In-Domain) strategy for STSb dataset with Semantic Search Sampling.
 
@@ -135,6 +141,12 @@ ce_trainer = CrossEncoderTrainer(
 ce_trainer.train()
 cross_encoder.save_pretrained(f"{cross_encoder_path}/final")
 
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
+try:
+    cross_encoder.push_to_hub(f"{model_name.split('/')[-1]}-augmentation-indomain-semantic-sts-cross-encoder")
+except Exception:
+    logging.exception("Could not upload the model. It is saved locally in %s.", f"{cross_encoder_path}/final")
+
 ############################################################################
 #
 # Step 2: Find silver pairs to label
@@ -264,3 +276,9 @@ test_evaluator = EmbeddingSimilarityEvaluator(
     name="sts-test",
 )
 test_evaluator(bi_encoder, output_path=bi_encoder_path)
+
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
+try:
+    bi_encoder.push_to_hub(f"{model_name.split('/')[-1]}-augmentation-indomain-semantic-sts")
+except Exception:
+    logging.exception("Could not upload the model. It is saved locally in %s.", f"{bi_encoder_path}/final")

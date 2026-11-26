@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+#     "pandas",
+# ]
+# ///
 """
 Distill a slow but high-quality teacher SentenceTransformer into a faster student
 by surgically dropping layers from the teacher and fine-tuning the remaining stack
@@ -235,7 +242,7 @@ final_output_dir = f"{output_dir}/final"
 student_model.save(final_output_dir)
 
 # (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = teacher_model_name if "/" not in teacher_model_name else teacher_model_name.split("/")[-1]
 try:
     student_model.push_to_hub(f"{model_name}-{len(layers_to_keep)}-layers")

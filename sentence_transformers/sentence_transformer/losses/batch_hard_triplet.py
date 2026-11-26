@@ -16,7 +16,9 @@ class BatchHardTripletLossDistanceFunction:
     @staticmethod
     def cosine_distance(embeddings: Tensor) -> Tensor:
         """Compute the 2D matrix of cosine distances (1-cosine_similarity) between all embeddings."""
-        return 1 - pytorch_cos_sim(embeddings, embeddings)
+        distances = (1 - pytorch_cos_sim(embeddings, embeddings)).clamp(min=0.0)
+        distances.fill_diagonal_(0.0)
+        return distances
 
     @staticmethod
     def euclidean_distance(embeddings: Tensor, squared=False) -> Tensor:
@@ -28,9 +30,13 @@ class BatchHardTripletLossDistanceFunction:
                      If false, output is the pairwise euclidean distance matrix.
         Returns:
             pairwise_distances: tensor of shape (batch_size, batch_size)
+                Float16 and bfloat16 inputs are computed in float32, including under autocast.
         """
 
-        dot_product = torch.matmul(embeddings, embeddings.t())
+        with torch.autocast(device_type=embeddings.device.type, enabled=False):
+            if embeddings.dtype in (torch.float16, torch.bfloat16):
+                embeddings = embeddings.float()
+            dot_product = torch.matmul(embeddings, embeddings.t())
 
         # Get squared L2 norm for each embedding. We can just take the diagonal of `dot_product`.
         # This also provides more numerical stability (the diagonal of the result will be exactly 0).
@@ -118,7 +124,8 @@ class BatchHardTripletLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import BatchHardTripletLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -133,7 +140,7 @@ class BatchHardTripletLoss(nn.Module):
                     ],
                     "label": [0, 1, 0, 0, 2],
                 })
-                loss = losses.BatchHardTripletLoss(model)
+                loss = BatchHardTripletLoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -143,12 +150,17 @@ class BatchHardTripletLoss(nn.Module):
                 trainer.train()
         """
         super().__init__()
-        self.sentence_embedder = model
+        self.model = model
         self.triplet_margin = margin
         self.distance_metric = distance_metric
 
+    @property
+    def sentence_embedder(self) -> SentenceTransformer:
+        """Backward-compatibility alias for :attr:`model`."""
+        return self.model
+
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor):
-        rep = self.sentence_embedder(sentence_features[0])["sentence_embedding"]
+        rep = self.model(sentence_features[0])["sentence_embedding"]
         return self.compute_loss_from_embeddings([rep], labels)
 
     def compute_loss_from_embeddings(self, embeddings: list[Tensor], labels: Tensor) -> Tensor:
@@ -167,7 +179,14 @@ class BatchHardTripletLoss(nn.Module):
         Returns:
             Label_Sentence_Triplet: scalar tensor containing the triplet loss
         """
-        # Get the pairwise distance matrix
+        batch_size = embeddings.shape[0]
+        if labels.numel() != batch_size:
+            raise ValueError(
+                f"{self.__class__.__name__} expects {batch_size} labels (one per example), "
+                f"but got {labels.numel()} labels with shape {tuple(labels.shape)}."
+            )
+        labels = labels.view(-1)
+
         pairwise_dist = self.distance_metric(embeddings)
 
         # For each anchor, get the hardest positive

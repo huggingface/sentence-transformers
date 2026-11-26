@@ -63,10 +63,10 @@ class CrossEncoderTrainer(BaseTrainer):
         loss (Optional[Union[:class:`torch.nn.Module`, Dict[str, :class:`torch.nn.Module`],\
             Callable[[:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`], :class:`torch.nn.Module`],\
             Dict[str, Callable[[:class:`~sentence_transformers.cross_encoder.model.CrossEncoder`]]]], *optional*):
-            The loss function to use for training. Can either be a loss class instance, a dictionary mapping
-            dataset names to loss class instances, a function that returns a loss class instance given a model,
-            or a dictionary mapping dataset names to functions that return a loss class instance given a model.
-            In practice, the latter two are primarily used for hyper-parameter optimization. Will default to
+            The loss function to use for training. Can be a loss class instance, a function that returns a loss
+            class instance given a model, or a dictionary mapping dataset names to either option.
+            With ``model_init``, provide a loss class or factory, or a dictionary of them, instead of initialized
+            loss instances. Will default to
             :class:`~sentence_transformers.cross_encoder.losses.BinaryCrossEntropyLoss` if no ``loss`` is provided.
         evaluator (Union[:class:`~sentence_transformers.base.evaluation.BaseEvaluator`,\
             List[:class:`~sentence_transformers.base.evaluation.BaseEvaluator`]], *optional*):
@@ -201,7 +201,7 @@ class CrossEncoderTrainer(BaseTrainer):
         if isinstance(loss_fn, dict) and dataset_name:
             loss_fn = loss_fn[dataset_name]
 
-        if model == self.model_wrapped and hasattr(loss_fn, "model") and loss_fn.model != model:
+        if model == self.model_wrapped and loss_fn.model != model:
             loss_fn = self.override_model_in_loss(loss_fn, model)
         try:
             loss = loss_fn(features, labels, prompt=prompt, task=task)

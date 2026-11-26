@@ -19,13 +19,10 @@ from sentence_transformers.base.losses.gradcache import (
     has_static_embedding_input,
 )
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
-from sentence_transformers.util import all_gather_with_grad, get_rank
+from sentence_transformers.util import all_gather_with_grad, batch_to_device, get_rank
 
 
 class CachedGISTEmbedLoss(nn.Module):
-    # Enables per-sample media counting in Transformer.preprocess for VLM minibatching
-    requires_media_counts = True
-
     # Back-propagates from a hook on the returned loss (see `gradcache.uses_gradient_cache`).
     uses_gradient_cache = True
 
@@ -64,6 +61,7 @@ class CachedGISTEmbedLoss(nn.Module):
         Args:
             model: SentenceTransformer model
             guide: SentenceTransformer model to guide the in-batch negative sample selection.
+                Its parameters are frozen unless shared with ``model``.
             temperature: Temperature parameter to scale the cosine similarities.
             mini_batch_size: Mini-batch size for the forward pass, this denotes how much memory is actually used during
                 training and evaluation. The larger the mini-batch size, the faster the training is, but the more memory is used. It's recommended to set it as high as your GPU memory allows. The default
@@ -115,7 +113,8 @@ class CachedGISTEmbedLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import CachedGISTEmbedLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -124,7 +123,7 @@ class CachedGISTEmbedLoss(nn.Module):
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.CachedGISTEmbedLoss(
+                loss = CachedGISTEmbedLoss(
                     model,
                     guide,
                     mini_batch_size=64,
@@ -175,6 +174,11 @@ class CachedGISTEmbedLoss(nn.Module):
         self.gather_across_devices = gather_across_devices
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
+        model_parameters = {id(parameter) for parameter in model.parameters()}
+        for parameter in guide.parameters():
+            if id(parameter) not in model_parameters:
+                parameter.requires_grad_(False)
+
     def sim_matrix(self, embed1: Tensor, embed2: Tensor) -> Tensor:
         return self.similarity_fct(embed1.unsqueeze(1), embed2.unsqueeze(0))
 
@@ -202,13 +206,15 @@ class CachedGISTEmbedLoss(nn.Module):
             else:
                 with torch.no_grad():
                     if self.must_retokenize:
-                        decoded = self.tokenizer.batch_decode(
-                            sentence_feature_minibatch["input_ids"], skip_special_tokens=True
-                        )
-                        sentence_feature_minibatch = self.guide.preprocess(decoded)
-                        sentence_feature_minibatch = {
-                            key: value.to(self.guide.device) for key, value in sentence_feature_minibatch.items()
-                        }
+                        input_ids = sentence_feature_minibatch["input_ids"]
+                        if "cu_seq_lens_q" in sentence_feature_minibatch:
+                            flat_input_ids = input_ids[0].tolist()
+                            cu_seq_lens = sentence_feature_minibatch["cu_seq_lens_q"].tolist()
+                            input_ids = [
+                                flat_input_ids[start:end] for start, end in zip(cu_seq_lens[:-1], cu_seq_lens[1:])
+                            ]
+                        decoded = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                        sentence_feature_minibatch = batch_to_device(self.guide.preprocess(decoded), self.guide.device)
                     guide_reps = self.guide(sentence_feature_minibatch)["sentence_embedding"]
 
         return reps, guide_reps, random_state
@@ -265,11 +271,14 @@ class CachedGISTEmbedLoss(nn.Module):
 
         batch_size = anchors.size(0)
         offset = 0
+        all_anchors, all_anchors_guide = anchors, anchors_guide
 
         if self.gather_across_devices:
-            # Gather the candidates across all devices, with gradients, but not the anchors. We compute only this
-            # device's anchors with all candidates from all devices, such that the backward pass on the document
-            # embeddings can flow back to the original devices.
+            # Compute loss only for local anchors against candidates gathered from all devices.
+            # Gradients for the gathered candidates flow back to their original devices.
+            if self.contrast_anchors:
+                all_anchors = all_gather_with_grad(anchors)
+                all_anchors_guide = all_gather_with_grad(anchors_guide)
             candidates = [all_gather_with_grad(candidate) for candidate in candidates]
             candidates_guide = [all_gather_with_grad(candidate) for candidate in candidates_guide]
             # All have this shape: 1 + nneg items of (batch_size * world_size, embedding_dim)
@@ -324,9 +333,10 @@ class CachedGISTEmbedLoss(nn.Module):
             scores = [ap_sim]
 
             if self.contrast_anchors:
-                aa_sim = self.sim_matrix(anchors[begin:end], anchors)
-                guided_aa_sim = self.sim_matrix(anchors_guide[begin:end], anchors_guide)
+                aa_sim = self.sim_matrix(anchors[begin:end], all_anchors)
+                guided_aa_sim = self.sim_matrix(anchors_guide[begin:end], all_anchors_guide)
                 aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
+                aa_sim[rows, offset + begin + rows] = -torch.inf  # No self-negative
                 scores.append(aa_sim)
 
             if self.contrast_positives:
@@ -337,6 +347,7 @@ class CachedGISTEmbedLoss(nn.Module):
                     candidates_guide[0][offset + begin : min(offset + end, offset + batch_size)], candidates_guide[0]
                 )
                 pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
+                pp_sim[rows, offset + begin + rows] = -torch.inf  # No self-negative
                 scores.append(pp_sim)
 
             # If there are negatives (len(candidates) > 1), process them

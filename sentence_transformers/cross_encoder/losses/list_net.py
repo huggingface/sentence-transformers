@@ -65,7 +65,8 @@ class ListNetLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, losses
+                from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer
+                from sentence_transformers.cross_encoder.losses import ListNetLoss
                 from datasets import Dataset
 
                 model = CrossEncoder("microsoft/mpnet-base")
@@ -77,7 +78,7 @@ class ListNetLoss(nn.Module):
                     ],
                     "labels": [[1, 0], [1, 1, 0]],
                 })
-                loss = losses.ListNetLoss(model)
+                loss = ListNetLoss(model)
 
                 trainer = CrossEncoderTrainer(
                     model=model,
@@ -111,6 +112,8 @@ class ListNetLoss(nn.Module):
         Args:
             inputs: List of (queries, documents_list)
             labels: Ground truth relevance scores, shape (batch_size, num_documents)
+            prompt: Optional prompt passed to the model's preprocessing of the (query, document) pairs.
+            task: Optional task passed to the model's preprocessing of the (query, document) pairs.
 
         Returns:
             Tensor: Mean ListNet loss over the batch

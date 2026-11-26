@@ -6,7 +6,7 @@ import json
 import random
 import tempfile
 import urllib.request
-from functools import lru_cache
+from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any
 
@@ -68,16 +68,19 @@ XFAIL_ARCHITECTURES = [
     "fsmt",
     # Other issues
     "bark",  # Processor doesn't accept 'padding' in text_kwargs as it hardcodes its padding strategy
+    "cohere",  # Named chat templates are not supported by message-format inference
     "bros",  # Has a hard requirement for bbox, low prio
     "lilt",  # Lilt requires bounding boxes
     "seggpt",  # Has a requirement for prompt_pixel_values and prompt_masks via prompt_images
     "speecht5",  # SpeechT5 is an encoder-decoder that either loads a SpeechT5EncoderWithTextPrenet or SpeechT5EncoderWithSpeechPrenet. There's also no subconfigs to determine which should be used, low prio
+    "timesfm",  # Requires time-series inputs, which Transformer does not support
     "timesformer",  # Timesformer doesn't nicely preserve the batch dimension when processing videos, low prio
     "speech_to_text",  # Tricky case as it's an encoder-decoder with unusual inputs, low prio
     # Transformers issues
     "focalnet",  # TODO: FocalNetModel.input_modalities still defaults to 'text'
     "fuyu",  # get_image_features accepts pixel_values, but the image processor only returns image_patches (identical, just different name), low prio
     "gemma3n",  # TODO: The Gemma3nModel type hint is not correct, plus the Gemma3nProcessor requires text at all times, despite code where text is created if it doesn't exist, high prio
+    "phi4_multimodal",  # Processor loads the chat template only on its tokenizer, but requires text with media placeholders
     "tvp",  # TODO: TvpProcessor.get_attributes() returns ['image_processor', 'tokenizer'] instead of ['video_processor', 'tokenizer']
     "videomae",  # TODO: Models often load with VideoMAEImageProcessor accepting 'images' instead of 'videos'
     "musicgen",  # not compatible with AutoModel
@@ -102,30 +105,36 @@ TRANSFORMERS_V4_XFAIL_ARCHITECTURES = [
     "mistral",
     "blenderbot-small",
 ]
-# Model checkpoints that are faulty and cannot be loaded by transformers currently
+# Model checkpoints with missing assets or faulty metadata
 FAULTY_CHECKPOINTS = [
     "data2vec-audio",  # No vocab file
     "mgp-str",  # Missing preprocessor_config.json / vocab file
+    "minimax_m3_vl",  # Processor metadata points to custom code instead of the native processor
     "patchtsmixer",  # Missing processor files
     "patchtst",  # Missing processor files
+    "step3p7",  # No image processor or tokenizer files in the checkpoint
+    "swin",  # Checkpoint hidden_size is 64, but embed_dim and depths imply an output width of 512
+    "swinv2",  # Checkpoint hidden_size is 64, but embed_dim and depths imply an output width of 512
     "vision-text-dual-encoder",  # preprocessor_config.json mentions now-removed ViTFeatureExtractor instead of ViTImageProcessor
+    "wavlm",  # AutoProcessor selects a CTC tokenizer, but the checkpoint has no vocabulary
     "yoso",  # tokenizer_config.json tokenizer_class is set to AlbertTokenizer, while it should likely be e.g. TokenizersBackend
+    "zaya",  # Text tokenizer declares Gemma3Processor, which requires a missing image processor
 ]
 
 REQUIRES_CUDA = [
     "qwen2_moe",  # Forward pass uses `torch._grouped_mm`, but data requires 16-bytes alignment on CPU, which isn't guaranteed. Perhaps fixed in https://github.com/pytorch/pytorch/pull/173395, but not yet released.
     "mra",
 ]
+EXPECT_SAVE_LOAD_FAIL = {
+    "mistral_large4": "Transformers cannot reverse the FP8 weight conversion after dequantization",
+}
 # Models whose checkpoints are faulty, but only with the 'forward', and I still want to test loading, saving,
 # configuration reading, etc. None denotes that failure is across all modalities, but for some models, the checkpoint
 # may only be faulty for certain modalities (e.g. image), so we can still test other modalities (e.g. text). The
 # value is then the modality description that is expected to fail.
 EXPECT_FORWARD_FAIL = {
-    "llava": None,  # Checkpoint input embedding size is 99, but tokenizer vocab size is the full size
     "markuplm": None,  # Checkpoint xpath embedding size is 20, but xpath_tags_seq is much higher
-    "mistral3": None,  # Checkpoint input embedding size is 32k, but tokenizer vocab size is 125k+
     "roc_bert": None,  # Checkpoint shape_embed size is 99, but input_shape_ids is up to 20k+
-    "qwen3_next": None,  # Checkpoint config has 2 num_hidden_layers, both linear_attention, but the Qwen3NextDynamicCache requires at least one full_attention layer
     "tapas": None,  # Doesn't accept standard truncation strategies, needs TapasTruncationStrategy, low prio
     "align": [  # Checkpoint image_processor size/crop_size set to 600, doesn't align with num layers, etc., low prio
         "image (url)",
@@ -134,21 +143,10 @@ EXPECT_FORWARD_FAIL = {
         "image (pil)",
         "image (path)",
     ],
-    "clap": [  # Checkpoint has num_mel_bins mismatch, and perhaps audio is too long
-        "audio (url)",
-        "audio (array)",
-        # "audio (tensor)",
-        "audio (dict)",
-        "audio (path)",
-        "audio (audio_decoder)",
-    ],
     "idefics": None,  # Checkpoint has "image_size": 224, which I can't override as image_size is normally a dict
     "idefics2": [  # Idefics2 doesn't accept image array/tensors
         "image (array)",
         "image (tensor)",
-    ],
-    "paligemma": [  # Paligemma doesn't accept URL images if there's also a text
-        "image+text (url, text)"
     ],
     "voxtral_realtime": None,  # RuntimeError: The size of tensor a (39) must match the size of tensor b (51) at non-singleton dimension 1
 }
@@ -173,13 +171,20 @@ EXPECT_IMAGE_VIDEO_FAILURE = [
     "glm4v",  # glm4v and glm4v_moe use image tokens for videos as well, and thus lose the ability to assign image features to the "real" image tokens,
     "glm4v_moe",  # and the video features to the image tokens used for videos.
     "glm_ocr",
+    "smolvlm",  # Image and video inputs share placeholder tokens, causing a feature/token mismatch when combined
 ]
 EXPECT_IMAGE_ONLY_FAILURE = [
     "llama4",  # Text is required at all times  # TODO: Or should I update Transformer? But this supports 'message' with only image I think?
 ]
-EXPECT_AUDIO_FAILURE = [
-    "gemma4",  # tiny checkpoint ships no audio tower weights, despite architecture supporting audio
-]
+
+# These templates reject query/document roles or discard their content.
+UNSUPPORTED_PAIR_TEMPLATES = {
+    "inkling_mm_model",
+    "mistral",
+    "mistral_large4",
+    "mixtral",
+    "qwen3_asr",
+}
 
 
 # Track temporary media files for cleanup
@@ -288,7 +293,7 @@ def get_sample_images(n: int = 2) -> dict[str, list[Any]]:
 
 
 @lru_cache(maxsize=4)
-def get_sample_audio(n: int = 2) -> dict[str, list[Any]]:
+def get_sample_audio(n: int = 2, sampling_rate: int = 16000) -> dict[str, list[Any]]:
     """Generate sample audio data in multiple formats.
 
     Returns:
@@ -303,9 +308,9 @@ def get_sample_audio(n: int = 2) -> dict[str, list[Any]]:
         "https://huggingface.co/datasets/tomaarsen/tiny-test/resolve/main/tiny_test_audio_1.wav",
     ][:n]
 
-    # Generate arrays (16kHz, 1000-2000 samples)
-    sampling_rate = 16000
-    arrays = [np.random.randn(random.randint(1000, 2000)).astype(np.float32) for _ in range(n)]
+    arrays = [
+        np.random.randn(random.randint(sampling_rate // 16, sampling_rate // 8)).astype(np.float32) for _ in range(n)
+    ]
     # tensors = [torch.from_numpy(arr) for arr in arrays]
     # max_length = max(tensor.shape[0] for tensor in tensors)
     # tensors = [torch.nn.functional.pad(tensor, (0, max_length - tensor.shape[0])) for tensor in tensors]
@@ -455,6 +460,7 @@ def create_modality_pair_samples(model: Transformer, modalities: list[str], n: i
     """
     from itertools import product
 
+    generators = _get_modality_sample_generators(model)
     samples = {}
     non_message_modalities = [m for m in modalities if m != "message" and isinstance(m, str)]
 
@@ -469,7 +475,7 @@ def create_modality_pair_samples(model: Transformer, modalities: list[str], n: i
         # Get first format variant for each modality
         modality_samples: dict[str, tuple[str, list]] = {}
         for mod in non_message_modalities:
-            generator = MODALITY_SAMPLE_GENERATORS.get(mod)
+            generator = generators.get(mod)
             if not generator:
                 continue
             format_variants = generator(n)
@@ -492,14 +498,15 @@ def create_modality_pair_samples(model: Transformer, modalities: list[str], n: i
     return samples
 
 
-# Mapping of modality keys to sample data generators
-# Note: Each generator returns a dict of format_name -> list of samples
-MODALITY_SAMPLE_GENERATORS = {
-    "text": get_sample_text,
-    "image": get_sample_images,
-    "audio": get_sample_audio,
-    "video": get_sample_video,
-}
+def _get_modality_sample_generators(model: Transformer) -> dict:
+    feature_extractor = getattr(model.processor, "feature_extractor", model.processor)
+    sampling_rate = getattr(feature_extractor, "sampling_rate", 16000)
+    return {
+        "text": get_sample_text,
+        "image": get_sample_images,
+        "audio": partial(get_sample_audio, sampling_rate=sampling_rate),
+        "video": get_sample_video,
+    }
 
 
 def create_modality_samples(
@@ -528,6 +535,7 @@ def create_modality_samples(
     """
     from itertools import combinations
 
+    generators = _get_modality_sample_generators(model)
     samples = {}
 
     # Separate message modality from others
@@ -537,7 +545,7 @@ def create_modality_samples(
 
     # 1. Test each single non-message modality with each format variant
     for modality in non_message_modalities:
-        generator = MODALITY_SAMPLE_GENERATORS.get(modality)
+        generator = generators.get(modality)
         if not generator:
             continue
 
@@ -556,7 +564,7 @@ def create_modality_samples(
                 modality_data = {}
                 format_names = []
                 for mod in combo:
-                    generator = MODALITY_SAMPLE_GENERATORS[mod]
+                    generator = generators[mod]
                     format_variants = generator(n)
                     # Use the first format variant for multimodal combinations
                     first_format = next(iter(format_variants.items()))
@@ -573,7 +581,7 @@ def create_modality_samples(
         modality_data = {}
         format_names = []
         for mod in multimodal_modality:
-            generator = MODALITY_SAMPLE_GENERATORS[mod]
+            generator = generators[mod]
             format_variants = generator(n)
             first_format = next(iter(format_variants.items()))
             modality_data[mod] = first_format[1]
@@ -609,7 +617,7 @@ def create_modality_samples(
                 # Skip text since we already handled it above
                 continue
 
-            generator = MODALITY_SAMPLE_GENERATORS.get(modality)
+            generator = generators.get(modality)
             if not generator:
                 continue
 
@@ -632,7 +640,7 @@ def create_modality_samples(
                 modality_data = {}
                 format_names = []
                 for mod in combo:
-                    generator = MODALITY_SAMPLE_GENERATORS[mod]
+                    generator = generators[mod]
                     format_variants = generator(n)
                     first_format = next(iter(format_variants.items()))
                     modality_data[mod] = first_format[1]
@@ -660,6 +668,9 @@ def get_arch_kwargs(arch: str, transformer_task: str) -> tuple[dict, dict, dict,
     processor_kwargs = {}
     processing_kwargs = {}
 
+    if transformer_task == "sequence-classification":
+        config_kwargs.update(num_labels=1, id2label={0: "LABEL_0"}, label2id={"LABEL_0": 0})
+
     # Resolve some minor issues in the checkpoints that prevent forward testing
     if arch == "blip-2":
         config_kwargs["image_token_id"] = 4
@@ -670,24 +681,21 @@ def get_arch_kwargs(arch: str, transformer_task: str) -> tuple[dict, dict, dict,
         config_kwargs["latent_query_num"] = 64
     if arch == "vilt":
         processor_kwargs["size_divisor"] = 4
-    if arch == "whisper":
-        config_kwargs["max_source_positions"] = 1500
     if arch == "idefics":
         processor_kwargs["additional_special_tokens"] = []
-    if arch == "marian":
-        config_kwargs["pad_token_id"] = 1
-    if arch == "qwen2_5_vl":
-        config_kwargs["hidden_size"] = 16
     if arch == "reformer" and transformer_task == "text-generation":
         config_kwargs["is_decoder"] = True
     if arch == "internvl":
         processing_kwargs["text"] = {"truncation": False}
+    if arch == "muse_spark":
+        # Tiny expert dimensions do not meet grouped_mm alignment requirements.
+        model_kwargs["experts_implementation"] = "eager"
     if arch == "mra":
         processor_kwargs["model_max_length"] = 256
         processing_kwargs["text"] = {"padding": "max_length"}
     if arch == "qwen3_5" and transformer_task == "sequence-classification":
         config_kwargs["text_config"] = {"num_labels": 1, "id2label": {0: "LABEL_0"}}
-    if arch in ("gemma4", "diffusion_gemma"):
+    if arch in ("gemma4", "gemma4_unified", "diffusion_gemma"):
         processing_kwargs["video"] = {"num_frames": 8}
     if arch == "gemma4":
         processing_kwargs["audio"] = {"truncation": False}
@@ -754,6 +762,8 @@ def load_transformer(arch: str, transformer_task: str = "feature-extraction", **
 
 
 def modify_processor_for_pairs(model: Transformer):
+    if model.config.model_type in UNSUPPORTED_PAIR_TEMPLATES:
+        return
     model.processor.chat_template = (
         model.processor.chat_template.replace('== "user"', 'in ["user", "query", "document"]')
         .replace("== 'user'", "in ['user', 'query', 'document']")

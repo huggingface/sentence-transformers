@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import csv
 import logging
-import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -10,8 +8,6 @@ import numpy as np
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 logger = logging.getLogger(__name__)
@@ -30,7 +26,7 @@ class MSEEvaluatorFromDataFrame(BaseEvaluator):
         teacher_model (SentenceTransformer): The teacher model used to compute the sentence embeddings.
         combinations (List[Tuple[str, str]]): Must be of the format ``[('en', 'es'), ('en', 'fr'), ...]``.
             First entry in a tuple is the source language. The sentence in the respective language will be fetched from
-            the dataframe and passed to the teacher model. Second entry in a tuple the the target language. Sentence
+            the dataframe and passed to the teacher model. Second entry in a tuple is the target language. Sentence
             will be fetched from the dataframe and passed to the student model
         batch_size (int, optional): The batch size to compute sentence embeddings. Defaults to 8.
         name (str, optional): The name of the evaluator. Defaults to "".
@@ -104,15 +100,7 @@ class MSEEvaluatorFromDataFrame(BaseEvaluator):
             logger.info(f"MSE (*100):\t{mse:4f}")
 
         if output_path is not None and self.write_csv:
-            os.makedirs(output_path, exist_ok=True)
-            csv_path = os.path.join(output_path, self.csv_file)
-            output_file_exists = os.path.isfile(csv_path)
-            with open(csv_path, newline="", mode="a" if output_file_exists else "w", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not output_file_exists:
-                    writer.writerow(self.csv_headers)
-
-                writer.writerow([epoch, steps] + mse_scores)
+            self._write_csv_row(output_path, [epoch, steps] + mse_scores)
 
         # Return negative score as SentenceTransformers maximizes the performance
         metrics = {"negative_mse": -np.mean(mse_scores).item()}

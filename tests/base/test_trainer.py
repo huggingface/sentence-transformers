@@ -3,22 +3,43 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import socket
+from copy import deepcopy
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import torch
+import torch.distributed as dist
 import torch.multiprocessing as mp
 from huggingface_hub import HfApi
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import Whitespace
+from transformers import TrainerCallback
 
 from sentence_transformers import (
+    CrossEncoderTrainer,
+    CrossEncoderTrainingArguments,
     SentenceTransformer,
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
 )
 from sentence_transformers.base.modules import Normalize, Router
+from sentence_transformers.base.training_args import MultiDatasetBatchSamplers
+from sentence_transformers.sentence_transformer.losses import (
+    CachedGISTEmbedLoss,
+    ContrastiveTensionLoss,
+    ContrastiveTensionLossInBatchNegatives,
+    CosineSimilarityLoss,
+    DenoisingAutoEncoderLoss,
+    EmbedDistillLoss,
+    GISTEmbedLoss,
+    MatryoshkaLoss,
+    MSELoss,
+    SoftmaxLoss,
+)
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import is_training_available
 
@@ -27,6 +48,231 @@ if not is_training_available():
         reason='Sentence Transformers was not installed with the `["train"]` extra.',
         allow_module_level=True,
     )
+
+from datasets import Dataset, DatasetDict
+
+
+class LossWithoutModel(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.encoder = model
+
+
+@pytest.mark.parametrize("cross_encoder", [False, True])
+@pytest.mark.parametrize("as_dict", [False, True])
+@pytest.mark.parametrize("as_factory", [False, True])
+def test_loss_requires_model(request, tmp_path, cross_encoder, as_dict, as_factory):
+    model = request.getfixturevalue("reranker_bert_tiny_model" if cross_encoder else "stsb_bert_tiny_model")
+    trainer_class = CrossEncoderTrainer if cross_encoder else SentenceTransformerTrainer
+    args_class = CrossEncoderTrainingArguments if cross_encoder else SentenceTransformerTrainingArguments
+    loss = LossWithoutModel if as_factory else LossWithoutModel(model)
+    with pytest.raises(ValueError, match=r"LossWithoutModel must store the model as `self.model`"):
+        trainer_class(
+            model=model,
+            args=args_class(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+            loss={"data": loss} if as_dict else loss,
+        )
+
+
+@pytest.mark.parametrize(
+    "loss_class, alias",
+    [
+        (ContrastiveTensionLoss, "model2"),
+        (ContrastiveTensionLossInBatchNegatives, "model2"),
+        (DenoisingAutoEncoderLoss, "encoder"),
+    ],
+)
+def test_loss_model_alias_uses_wrapped_model(stsb_bert_tiny_model, tmp_path, loss_class, alias):
+    model = stsb_bert_tiny_model.to("cpu")
+    loss = loss_class(model)
+    assert loss.model is getattr(loss, alias) is model
+    assert alias not in dict(loss.named_children())
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+        loss=loss,
+    )
+    trainer.model_wrapped = torch.nn.Sequential(model)
+    samples = [{"source": "hello world", "label": 1.0}, {"source": "hello", "label": 0.0}]
+    if loss_class is not ContrastiveTensionLossInBatchNegatives:
+        for sample in samples:
+            sample["target"] = "hello world"
+    calls = []
+    with trainer.model_wrapped.register_forward_hook(lambda *args: calls.append(True)):
+        value = trainer.compute_loss(trainer.model_wrapped, trainer.data_collator(samples))
+        value.backward()
+    assert torch.isfinite(value)
+    assert calls == [True]
+    assert loss.model is getattr(loss, alias) is trainer.model_wrapped
+    assert any(parameter.grad is not None for parameter in model.parameters())
+
+
+@pytest.mark.parametrize(
+    "loss_class",
+    [
+        ContrastiveTensionLoss,
+        ContrastiveTensionLossInBatchNegatives,
+        DenoisingAutoEncoderLoss,
+        EmbedDistillLoss,
+        SoftmaxLoss,
+    ],
+)
+def test_ddp_rejects_trainable_loss_parameters(stsb_bert_tiny_model, tmp_path, loss_class):
+    model = stsb_bert_tiny_model.to("cpu")
+    kwargs = {}
+    if loss_class is EmbedDistillLoss:
+        kwargs = {"projection_dim": 64}
+    elif loss_class is SoftmaxLoss:
+        kwargs = {"embedding_dimension": model.get_embedding_dimension(), "num_labels": 2}
+    loss = loss_class(model, **kwargs)
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+        loss=loss,
+    )
+    wrapped = Mock(spec=torch.nn.parallel.DistributedDataParallel)
+    wrapped.parameters.return_value = list(model.parameters())
+    trainer.model_wrapped = wrapped
+    with pytest.raises(ValueError, match="trainable parameters outside `model` that DDP does not synchronize"):
+        trainer.compute_loss(wrapped, {})
+    assert loss.model is model
+
+    model_parameters = {id(parameter) for parameter in model.parameters()}
+    for parameter in loss.parameters():
+        if id(parameter) not in model_parameters:
+            parameter.requires_grad_(False)
+    trainer.override_model_in_loss(loss, wrapped)
+    assert loss.model is wrapped
+
+
+@pytest.mark.parametrize("loss_class", [GISTEmbedLoss, CachedGISTEmbedLoss])
+@pytest.mark.parametrize("guide_sharing", ["none", "partial", "full"])
+def test_ddp_allows_gist_guides(stsb_bert_tiny_model, tmp_path, loss_class, guide_sharing):
+    model = stsb_bert_tiny_model.to("cpu")
+    guide = model if guide_sharing == "full" else deepcopy(model)
+    if guide_sharing == "partial":
+        guide.transformers_model.set_input_embeddings(model.transformers_model.get_input_embeddings())
+    guided_loss = loss_class(model, guide)
+    model_parameters = {id(parameter) for parameter in model.parameters()}
+    assert all(parameter.requires_grad for parameter in model.parameters())
+    assert all(parameter.requires_grad == (id(parameter) in model_parameters) for parameter in guide.parameters())
+    loss = MatryoshkaLoss(model, guided_loss, [64])
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+        loss=loss,
+    )
+    samples = [{"anchor": "hello", "positive": "world"}, {"anchor": "world", "positive": "hello"}]
+    trainer.compute_loss(model, trainer.data_collator(samples)).backward()
+    assert any(parameter.grad is not None for parameter in model.parameters())
+    assert all(parameter.grad is None for parameter in guide.parameters() if id(parameter) not in model_parameters)
+
+    wrapped = Mock(spec=torch.nn.parallel.DistributedDataParallel)
+    wrapped.parameters.return_value = list(model.parameters())
+    trainer.override_model_in_loss(loss, wrapped)
+    assert loss.model is guided_loss.model is wrapped
+
+
+@pytest.mark.parametrize("as_dict", [False, True])
+@pytest.mark.parametrize(
+    "device",
+    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required"))],
+)
+@pytest.mark.parametrize(
+    "loss_class", [ContrastiveTensionLoss, ContrastiveTensionLossInBatchNegatives, DenoisingAutoEncoderLoss]
+)
+def test_model_init_recreates_loss(stsb_bert_tiny_model, tmp_path, loss_class, as_dict, device):
+    from datasets import Dataset
+
+    model = stsb_bert_tiny_model.to("cpu")
+    created_losses = []
+
+    def loss_init(model):
+        loss = loss_class(model)
+        created_losses.append(loss)
+        return loss
+
+    data = {"source": ["hello world", "hello"]}
+    if loss_class is not ContrastiveTensionLossInBatchNegatives:
+        data["target"] = ["hello world", "hello world"]
+    dataset = Dataset.from_dict(data)
+    loss = {"data": loss_init, "other": CosineSimilarityLoss} if as_dict else loss_init
+    trainer = SentenceTransformerTrainer(
+        model_init=lambda: deepcopy(model),
+        loss=loss,
+        train_dataset={"data": dataset} if as_dict else dataset,
+        args=SentenceTransformerTrainingArguments(
+            output_dir=str(tmp_path),
+            use_cpu=device == "cpu",
+            report_to=[],
+            max_steps=1,
+            per_device_train_batch_size=2,
+            save_strategy="no",
+            logging_strategy="no",
+            disable_tqdm=True,
+        ),
+    )
+
+    for initialization in range(3):
+        if initialization:
+            trainer.train()
+        current_loss = trainer.loss["data"] if as_dict else trainer.loss
+        assert len(created_losses) == initialization + 1
+        assert current_loss is created_losses[-1]
+        assert current_loss.model is trainer.model
+        assert all(parameter.device == trainer.args.device for parameter in current_loss.parameters())
+        if as_dict:
+            assert loss["data"] is loss_init
+            assert loss["other"] is CosineSimilarityLoss
+            assert trainer.loss["other"].model is trainer.model
+
+        if loss_class is DenoisingAutoEncoderLoss:
+            encoder = trainer.model.transformers_model
+            decoder = current_loss.decoder
+            encoder_params = dict(encoder.named_parameters())
+            decoder_params = dict(decoder.base_model.named_parameters())
+            common = encoder_params.keys() & decoder_params.keys()
+            assert common
+            assert all(encoder_params[name] is decoder_params[name] for name in common)
+            assert encoder.get_input_embeddings().weight is decoder.get_output_embeddings().weight
+
+        if initialization:
+            previous_params = {id(parameter) for parameter in created_losses[-2].parameters()}
+            current_params = {id(parameter) for parameter in current_loss.parameters()}
+            assert previous_params.isdisjoint(current_params)
+            optimizer_params = {
+                id(parameter) for group in trainer.optimizer.param_groups for parameter in group["params"]
+            }
+            assert optimizer_params == current_params
+
+
+@pytest.mark.parametrize("as_dict", [False, True])
+@pytest.mark.parametrize("loss_class", [CosineSimilarityLoss, ContrastiveTensionLoss, DenoisingAutoEncoderLoss])
+def test_model_init_rejects_loss_instances(stsb_bert_tiny_model, tmp_path, as_dict, loss_class):
+    model = stsb_bert_tiny_model.to("cpu")
+    loss = loss_class(model)
+    with pytest.raises(ValueError, match=r"model_init.*loss class.*initialized loss instance"):
+        SentenceTransformerTrainer(
+            model_init=lambda: deepcopy(model),
+            loss={"factory": CosineSimilarityLoss, "instance": loss} if as_dict else loss,
+            args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+        )
+
+
+@pytest.mark.parametrize("cross_encoder", [False, True])
+def test_model_init_with_default_loss(request, tmp_path, cross_encoder):
+    model = request.getfixturevalue("reranker_bert_tiny_model" if cross_encoder else "stsb_bert_tiny_model")
+    trainer_class = CrossEncoderTrainer if cross_encoder else SentenceTransformerTrainer
+    args_class = CrossEncoderTrainingArguments if cross_encoder else SentenceTransformerTrainingArguments
+    trainer = trainer_class(
+        model_init=lambda: deepcopy(model),
+        args=args_class(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+    )
+    assert trainer.loss.model is trainer.model
+    for _ in range(2):
+        new_model = trainer.call_model_init()
+        assert new_model is not trainer.model
+        assert trainer.loss.model is new_model
 
 
 @contextlib.contextmanager
@@ -187,6 +433,34 @@ def test_load_from_checkpoint_reloads_custom_module_classes(
     assert reload_kwargs["trust_remote_code"] is False
 
 
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize("load_best_model", [False, True])
+def test_load_from_checkpoint_preserves_compiled_model(
+    stsb_bert_tiny_model: SentenceTransformer, tmp_path: Path, compiled: bool, load_best_model: bool
+) -> None:
+    model = stsb_bert_tiny_model
+    training_model = torch.compile(model, backend="eager") if compiled else model
+    args = SentenceTransformerTrainingArguments(output_dir=str(tmp_path / "out"), report_to=[])
+    trainer = SentenceTransformerTrainer(model=training_model, args=args)
+    checkpoint_folder = tmp_path / "checkpoint-1"
+    trainer._save(output_dir=str(checkpoint_folder))
+
+    weights = next(model.parameters())
+    original = weights.detach().clone()
+    with torch.no_grad():
+        weights.add_(1)
+
+    if load_best_model:
+        trainer.state.best_model_checkpoint = str(checkpoint_folder)
+        trainer._load_best_model()
+    else:
+        trainer._load_from_checkpoint(str(checkpoint_folder))
+
+    assert torch.equal(weights, original)
+    assert trainer.model is training_model
+    assert next(trainer.model.parameters()) is weights
+
+
 def test_track_loss_components_detaches_the_accumulated_values() -> None:
     """The component dict values carry the autograd graph and, for the Cached* losses, the
     gradient caches held by their backward hook. Accumulating them undetached would pin
@@ -209,16 +483,63 @@ def test_track_loss_components_detaches_the_accumulated_values() -> None:
     assert accumulated.item() == pytest.approx(12.0)
 
 
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize(
+    ("training", "num_calls", "global_step"),
+    [
+        (True, 4, 1),  # gradient accumulation: 4 loss calls, 1 optimizer step since the last log
+        (False, 99, 0),  # evaluation: 99 batches, no optimizer step since the last log
+    ],
+)
+def test_track_loss_components_replaces_nonfinite_with_the_running_mean(
+    training: bool, num_calls: int, global_step: int, nonfinite: float
+) -> None:
+    trainer = SimpleNamespace(
+        args=SimpleNamespace(logging_nan_inf_filter=True),
+        model=SimpleNamespace(training=training),
+        accum_loss_components={"train": {}, "eval": {}},
+        state=SimpleNamespace(global_step=global_step),
+        _globalstep_last_logged=0,
+    )
+    for value in range(1, num_calls + 1):
+        SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": torch.tensor(float(value))})
+    SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": torch.tensor(nonfinite)})
+
+    accum = trainer.accum_loss_components["train" if training else "eval"]
+    assert (accum["base_loss"] / accum["steps"]).item() == pytest.approx((num_calls + 1) / 2)
+
+    # log() resets the accumulators but retains their keys.
+    accum["base_loss"].zero_()
+    accum["steps"].zero_()
+    SentenceTransformerTrainer.track_loss_components(trainer, {"base_loss": torch.tensor(nonfinite)})
+    assert accum["base_loss"].item() == 0.0
+    assert accum["steps"].item() == 1
+
+
 def _run_ddp_evaluation_loop(
-    rank: int, world_size: int, port: int, tmp_dir: str, sharded_backend: str | None = None
+    rank: int, world_size: int, init_method: str, tmp_dir: str, sharded_backend: str | None = None
 ) -> None:
     os.environ["RANK"] = str(rank)
     os.environ["WORLD_SIZE"] = str(world_size)
     os.environ["LOCAL_RANK"] = str(rank)
     os.environ["LOCAL_WORLD_SIZE"] = str(world_size)
-    os.environ["MASTER_ADDR"] = "127.0.0.1"
-    os.environ["MASTER_PORT"] = str(port)
+    dist.init_process_group(
+        "gloo",
+        init_method=init_method,
+        rank=rank,
+        world_size=world_size,
+        timeout=timedelta(seconds=30),
+    )
+    try:
+        _run_ddp_evaluation_loop_in_group(rank, world_size, tmp_dir, sharded_backend)
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
 
+
+def _run_ddp_evaluation_loop_in_group(
+    rank: int, world_size: int, tmp_dir: str, sharded_backend: str | None = None
+) -> None:
     from datasets import Dataset
 
     from sentence_transformers.base.evaluation import BaseEvaluator
@@ -231,7 +552,7 @@ def _run_ddp_evaluation_loop(
         tokenizer=WhitespaceTokenizer(vocab=vocab),
         embedding_weights=torch.rand(len(vocab), 16, generator=torch.Generator().manual_seed(12)),
     )
-    model = SentenceTransformer(modules=[word_embeddings, Pooling(16, "mean")])
+    model = SentenceTransformer(modules=[word_embeddings, Pooling(16, "mean")], device="cpu")
     similarity_evaluator = EmbeddingSimilarityEvaluator(
         ["hello", "world", "hello world", "sentence", "transformers"],
         ["world", "hello world", "hello", "transformers", "sentence transformers"],
@@ -273,17 +594,13 @@ def _run_ddp_evaluation_loop(
     for key, expected in expected_metrics.items():
         assert metrics[f"eval_{key}"] == pytest.approx(expected)
     (Path(tmp_dir) / f"metrics_rank_{rank}.json").write_text(json.dumps(metrics["eval_score"]))
-    torch.distributed.destroy_process_group()
 
 
 def test_evaluator_runs_once_and_broadcasts_under_ddp(tmp_path: Path) -> None:
     """Share evaluator inference across ranks and broadcast the full-dataset metrics."""
     world_size = 2
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-
-    mp.spawn(_run_ddp_evaluation_loop, args=(world_size, port, str(tmp_path)), nprocs=world_size, join=True)
+    init_method = (tmp_path / "store").as_uri()
+    mp.spawn(_run_ddp_evaluation_loop, args=(world_size, init_method, str(tmp_path)), nprocs=world_size, join=True)
 
     called = sorted(p.name for p in tmp_path.glob("called_rank_*"))
     assert called == ["called_rank_0"], "only world rank 0 should call the evaluator"
@@ -298,11 +615,13 @@ def test_evaluator_runs_once_and_broadcasts_under_ddp(tmp_path: Path) -> None:
 @pytest.mark.parametrize("sharded_backend", ["fsdp", "deepspeed"])
 def test_sharded_evaluator_participates_on_all_ranks(tmp_path: Path, sharded_backend: str) -> None:
     """Exercise backend routing with a collective evaluator on two CPU ranks."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-
-    mp.spawn(_run_ddp_evaluation_loop, args=(2, port, str(tmp_path), sharded_backend), nprocs=2, join=True)
+    init_method = (tmp_path / "store").as_uri()
+    mp.spawn(
+        _run_ddp_evaluation_loop,
+        args=(2, init_method, str(tmp_path), sharded_backend),
+        nprocs=2,
+        join=True,
+    )
 
     assert sorted(path.name for path in tmp_path.glob("called_rank_*")) == ["called_rank_0", "called_rank_1"]
     scores = [json.loads(path.read_text()) for path in sorted(tmp_path.glob("metrics_rank_*.json"))]
@@ -310,3 +629,142 @@ def test_sharded_evaluator_participates_on_all_ranks(tmp_path: Path, sharded_bac
     csv_files = list(tmp_path.glob("out_*/eval/*_results.csv"))
     assert len(csv_files) == 1
     assert len(csv_files[0].read_text().splitlines()) == 2
+
+
+@pytest.fixture
+def loss_training_model() -> SentenceTransformer:
+    tokenizer = Tokenizer(WordLevel({"[UNK]": 0, "hello": 1, "world": 2}, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = Whitespace()
+    weights = torch.arange(24, dtype=torch.float32).reshape(3, 8) / 24
+    model = SentenceTransformer(modules=[StaticEmbedding(tokenizer, embedding_weights=weights)], device="cpu")
+    model.model_card_data.generate_widget_examples = False
+    return model
+
+
+def test_embedding_distillation_with_tensor_formatted_labels(loss_training_model, tmp_path):
+    model = loss_training_model
+    texts = ["hello", "world", "hello world", "world hello"]
+    labels = torch.ones(len(texts), model.get_embedding_dimension())
+    dataset = Dataset.from_dict({"sentence": texts, "label": labels.tolist()}).with_format(
+        "torch", columns=["label"], output_all_columns=True
+    )
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        train_dataset=dataset,
+        loss=MSELoss(model),
+        args=SentenceTransformerTrainingArguments(
+            output_dir=str(tmp_path),
+            max_steps=1,
+            per_device_train_batch_size=4,
+            learning_rate=0.01,
+            save_strategy="no",
+            report_to=[],
+            use_cpu=True,
+        ),
+    )
+    weights = next(model.parameters())
+    before = weights.detach().clone()
+
+    result = trainer.train()
+
+    assert result.global_step == 1
+    assert not torch.equal(weights, before)
+    assert torch.isfinite(weights).all()
+
+
+@pytest.mark.parametrize("gradient_accumulation_steps", [1, 2])
+@pytest.mark.parametrize("loss_class", [SoftmaxLoss, CosineSimilarityLoss, MSELoss])
+def test_loss_gradients_match_manual_training(
+    loss_training_model, tmp_path, gradient_accumulation_steps: int, loss_class
+) -> None:
+    model = loss_training_model
+    if loss_class is SoftmaxLoss:
+        loss = SoftmaxLoss(model, model.get_embedding_dimension(), num_labels=3)
+        label = 1
+    elif loss_class is MSELoss:
+        loss = MSELoss(model, projection_dim=12)
+        label = [0.25] * 12
+    else:
+        loss = CosineSimilarityLoss(model)
+        label = 0.5
+    reference_loss = deepcopy(loss)
+    for parameter in loss.parameters():
+        parameter.grad = torch.ones_like(parameter)
+    dataset = Dataset.from_dict({"a": ["hello"] * 12, "b": ["world"] * 12, "label": [label] * 12})
+    args = SentenceTransformerTrainingArguments(
+        output_dir=str(tmp_path),
+        use_cpu=True,
+        max_steps=3,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        optim="sgd",
+        learning_rate=0.1,
+        lr_scheduler_type="constant",
+        max_grad_norm=0.0,
+        save_strategy="no",
+        report_to=[],
+        disable_tqdm=True,
+    )
+    trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=dataset, loss=loss)
+    trainer.train()
+
+    optimizer = torch.optim.SGD(reference_loss.parameters(), lr=0.1)
+    reference_loss.train()
+    for _ in range(3):
+        optimizer.zero_grad()
+        for _ in range(gradient_accumulation_steps):
+            features = [reference_loss.model.preprocess([text] * 2) for text in ["hello", "world"]]
+            (reference_loss(features, torch.tensor([label] * 2)) / gradient_accumulation_steps).backward()
+        optimizer.step()
+
+    for parameter, expected in zip(loss.parameters(), reference_loss.parameters()):
+        torch.testing.assert_close(parameter, expected)
+        assert parameter.grad is None
+
+
+@pytest.mark.parametrize("fp16", [False, True])
+def test_multi_objective_training_only_updates_active_loss(loss_training_model, tmp_path, fp16: bool) -> None:
+    if fp16 and not torch.cuda.is_available():
+        pytest.skip("FP16 training requires CUDA")
+    model = loss_training_model.to("cuda" if fp16 else "cpu")
+    losses = {name: SoftmaxLoss(model, model.get_embedding_dimension(), num_labels=3) for name in ["first", "second"]}
+    parameters = list(torch.nn.ModuleDict(losses).parameters())
+    dataset = Dataset.from_dict({"a": ["hello"] * 8, "b": ["world"] * 8, "label": [1] * 8})
+    active_losses = set()
+    for name, loss in losses.items():
+        loss.register_forward_pre_hook(lambda module, inputs, name=name: active_losses.add(name))
+
+    class CheckGradients(TrainerCallback):
+        def on_step_begin(self, args, state, control, **kwargs):
+            assert all(parameter.grad is None for parameter in parameters)
+            self.before = {name: loss.classifier.weight.detach().clone() for name, loss in losses.items()}
+
+        def on_step_end(self, args, state, control, **kwargs):
+            assert active_losses
+            for name, loss in losses.items():
+                changed = not torch.equal(loss.classifier.weight, self.before[name])
+                assert changed == (name in active_losses)
+            active_losses.clear()
+
+    args = SentenceTransformerTrainingArguments(
+        output_dir=str(tmp_path),
+        use_cpu=not fp16,
+        fp16=fp16,
+        max_steps=4,
+        per_device_train_batch_size=2,
+        multi_dataset_batch_sampler=MultiDatasetBatchSamplers.ROUND_ROBIN,
+        learning_rate=0.01,
+        lr_scheduler_type="constant",
+        save_strategy="no",
+        report_to=[],
+        disable_tqdm=True,
+    )
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=args,
+        train_dataset=DatasetDict({name: dataset for name in losses}),
+        loss=losses,
+        callbacks=[CheckGradients()],
+    )
+    trainer.train()
+    assert all(parameter.grad is None for parameter in parameters)

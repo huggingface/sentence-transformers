@@ -10,7 +10,7 @@ from transformers import PreTrainedTokenizerBase
 from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
-from sentence_transformers.util import all_gather_with_grad, get_rank
+from sentence_transformers.util import all_gather_with_grad, batch_to_device, get_rank
 
 
 class GISTEmbedLoss(nn.Module):
@@ -40,6 +40,7 @@ class GISTEmbedLoss(nn.Module):
         Args:
             model: SentenceTransformer model based on a `transformers` model.
             guide: SentenceTransformer model to guide the in-batch negative sample selection.
+                Its parameters are frozen unless shared with ``model``.
             temperature: Temperature parameter to scale the cosine similarities. Inverse of the ``scale`` parameter
                 in :class:`MultipleNegativesRankingLoss`.
             margin_strategy: Strategy used for false negative filtering. One of {"absolute", "relative"}.
@@ -82,7 +83,8 @@ class GISTEmbedLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -91,7 +93,7 @@ class GISTEmbedLoss(nn.Module):
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.GISTEmbedLoss(model, guide)
+                loss = GISTEmbedLoss(model, guide)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -134,6 +136,11 @@ class GISTEmbedLoss(nn.Module):
         self.gather_across_devices = gather_across_devices
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
+        model_parameters = {id(parameter) for parameter in model.parameters()}
+        for parameter in guide.parameters():
+            if id(parameter) not in model_parameters:
+                parameter.requires_grad_(False)
+
     def sim_matrix(self, embed1: Tensor, embed2: Tensor) -> Tensor:
         return self.similarity_fct(embed1.unsqueeze(1), embed2.unsqueeze(0))
 
@@ -145,18 +152,17 @@ class GISTEmbedLoss(nn.Module):
         embeddings = embed_columns(self.model, sentence_features)
         with torch.no_grad():
             if self.must_retokenize:
-                decoded = [
-                    self.tokenizer.batch_decode(sentence_feature["input_ids"], skip_special_tokens=True)
-                    for sentence_feature in sentence_features
-                ]
-                guide_features = [self.guide.preprocess(sentences) for sentences in decoded]
-                guide_features = [
-                    {
-                        key: value.to(self.guide.device) if isinstance(value, Tensor) else value
-                        for key, value in guide_feature.items()
-                    }
-                    for guide_feature in guide_features
-                ]
+                guide_features = []
+                for sentence_feature in sentence_features:
+                    input_ids = sentence_feature["input_ids"]
+                    if "cu_seq_lens_q" in sentence_feature:
+                        flat_input_ids = input_ids[0].tolist()
+                        cu_seq_lens = sentence_feature["cu_seq_lens_q"].tolist()
+                        input_ids = [
+                            flat_input_ids[start:end] for start, end in zip(cu_seq_lens[:-1], cu_seq_lens[1:])
+                        ]
+                    decoded = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                    guide_features.append(batch_to_device(self.guide.preprocess(decoded), self.guide.device))
 
             guide_embeddings = embed_columns(self.guide, guide_features)
 
@@ -173,11 +179,14 @@ class GISTEmbedLoss(nn.Module):
             raise ValueError(f"Expected 2 or 3 embeddings, got {len(embeddings)}")
         batch_size = anchor.size(0)
         offset = 0
+        all_anchor, all_anchor_guide = anchor, anchor_guide
 
         if self.gather_across_devices:
-            # Gather the candidates across all devices, with gradients, but not the anchors. We compute only this
-            # device's anchors with all candidates from all devices, such that the backward pass on the document
-            # embeddings can flow back to the original devices.
+            # Compute loss only for local anchors against candidates gathered from all devices.
+            # Gradients for the gathered candidates flow back to their original devices.
+            if self.contrast_anchors:
+                all_anchor = all_gather_with_grad(anchor)
+                all_anchor_guide = all_gather_with_grad(anchor_guide)
             positive = all_gather_with_grad(positive)
             positive_guide = all_gather_with_grad(positive_guide)
             if negative is not None:
@@ -221,15 +230,17 @@ class GISTEmbedLoss(nn.Module):
         scores = [ap_sim]
 
         if self.contrast_anchors:
-            aa_sim = self.sim_matrix(anchor, anchor)
-            guided_aa_sim = self.sim_matrix(anchor_guide, anchor_guide)
+            aa_sim = self.sim_matrix(anchor, all_anchor)
+            guided_aa_sim = self.sim_matrix(anchor_guide, all_anchor_guide)
             aa_sim = mask_false_negatives(guided_aa_sim, aa_sim)  # anchor-anchor
+            aa_sim[rows, offset + rows] = -torch.inf  # No self-negative
             scores.append(aa_sim)
 
         if self.contrast_positives:
             pp_sim = self.sim_matrix(positive[offset : offset + batch_size], positive)
             guided_pp_sim = self.sim_matrix(positive_guide[offset : offset + batch_size], positive_guide)
             pp_sim = mask_false_negatives(guided_pp_sim, pp_sim)  # positive-positive
+            pp_sim[rows, offset + rows] = -torch.inf  # No self-negative
             scores.append(pp_sim)
 
         # Handle the case where we have a negative sample

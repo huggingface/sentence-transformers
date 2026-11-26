@@ -54,8 +54,16 @@ def main() -> None:
     compressed = pooling.pool(baseline)
     compressed_scores = model.similarity(query_emb, compressed)[0].tolist()
     print(
-        f"\nStandalone pool_factor=3 on cached embeddings: "
+        f"\nStandalone pool_factor=3 with normalized output tokens: "
         f"{sum(e.shape[0] for e in compressed)} tokens, scores {[round(s, 3) for s in compressed_scores]}."
+    )
+
+    threshold = HierarchicalTokenPooling.calibrate_distance_threshold(baseline, target_tokens=8)
+    adaptive = HierarchicalTokenPooling(distance_threshold=threshold)
+    adaptive_embeddings = adaptive.pool(baseline)
+    print(
+        f"\nAdaptive threshold={adaptive.distance_threshold}: "
+        f"{[len(emb) for emb in adaptive_embeddings]} tokens per document."
     )
 
     # (3) Pipeline module: bake the pooling into the model so every consumer of the saved
