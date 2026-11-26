@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from unittest.mock import call
+from unittest.mock import call, patch
 
 import numpy as np
 import pytest
@@ -141,32 +141,85 @@ def test_nano_retrieval_evaluator_loading_errors(evaluator_class, nano_datasets)
 
 
 @pytest.mark.parametrize("evaluator_class", [NanoRetrievalEvaluator, MultiVectorNanoRetrievalEvaluator])
-def test_nano_retrieval_evaluator_corpus_column(evaluator_class, nano_datasets):
+@pytest.mark.parametrize("image_column", ["image", "input"])
+def test_nano_retrieval_evaluator_corpus_column(evaluator_class, image_column, nano_datasets):
     from datasets import Dataset
     from PIL import Image
 
     images = [Image.new("RGB", (8, 8), color) for color in ["red", "blue"]]
     nano_datasets.subsets["corpus"] = Dataset.from_list(
         [
-            {"_id": "d0", "text": "Paris is the capital of France.", "image": images[0]},
-            {"_id": "d1", "text": "", "image": images[1]},
-            {"_id": "d2", "text": "A page without an image.", "image": None},
+            {"_id": "d0", "text": "Paris is the capital of France.", image_column: images[0]},
+            {"_id": "d1", "text": "", image_column: images[1]},
+            {"_id": "d2", "text": "A page without an image.", image_column: None},
         ]
     )
 
-    evaluator = evaluator_class(nano_datasets.dataset_id, splits=["first_task"], corpus_column="image")
+    corpus_column = "image" if image_column == "image" else None
+    evaluator = evaluator_class(nano_datasets.dataset_id, splits=["first_task"], corpus_column=corpus_column)
     corpus = evaluator.evaluators[0].corpus
     assert evaluator.evaluators[0].corpus_ids == ["d0", "d1"]
     assert all(isinstance(document, Image.Image) for document in corpus)
-    assert evaluator.get_config_dict()["corpus_column"] == "image"
+    assert evaluator.get_config_dict().get("corpus_column") == corpus_column
 
-    # The default still reads the "text" column, skipping empty documents
-    evaluator = evaluator_class(nano_datasets.dataset_id, splits=["first_task"])
+    with patch("datasets.Image.decode_example", side_effect=AssertionError("Unused image column was decoded")):
+        evaluator = evaluator_class(nano_datasets.dataset_id, splits=["first_task"], corpus_column="text")
     assert evaluator.evaluators[0].corpus_ids == ["d0", "d2"]
-    assert "corpus_column" not in evaluator.get_config_dict()
+    assert evaluator.get_config_dict()["corpus_column"] == "text"
+
+    nano_datasets.subsets["corpus"] = nano_datasets.subsets["corpus"].remove_columns("text")
+    evaluator = evaluator_class(nano_datasets.dataset_id, splits=["first_task"], corpus_column=corpus_column)
+    assert evaluator.evaluators[0].corpus_ids == ["d0", "d1"]
 
     with pytest.raises(ValueError, match="missing required columns.*markdown"):
         evaluator_class(nano_datasets.dataset_id, splits=["first_task"], corpus_column="markdown")
+
+
+@pytest.mark.parametrize(
+    "evaluator_class", [NanoRetrievalEvaluator, SparseNanoRetrievalEvaluator, MultiVectorNanoRetrievalEvaluator]
+)
+@pytest.mark.parametrize("input_column", ["text", "input"])
+def test_nano_retrieval_evaluator_input_columns(evaluator_class, input_column, nano_datasets):
+    from datasets import Dataset
+
+    nano_datasets.subsets["corpus"] = Dataset.from_list([{"_id": "d0", input_column: "document"}])
+    nano_datasets.subsets["queries"] = Dataset.from_list(
+        [{"_id": "q0", "text": "original query", "input": "preferred query"}]
+    )
+    evaluator = evaluator_class(nano_datasets.dataset_id, splits=["first_task"])
+    assert evaluator.evaluators[0].corpus == ["document"]
+    assert evaluator.evaluators[0].queries == ["preferred query"]
+    assert "corpus_column" not in evaluator.get_config_dict()
+
+    nano_datasets.subsets["queries"] = nano_datasets.subsets["queries"].remove_columns("text")
+    evaluator = evaluator_class(nano_datasets.dataset_id, splits=["first_task"])
+    assert evaluator.evaluators[0].queries == ["preferred query"]
+
+
+def test_nano_retrieval_evaluator_resolves_columns_per_split(nano_datasets):
+    load = nano_datasets.load.side_effect
+
+    def load_split(dataset_id, subset, split):
+        dataset = load(dataset_id, subset, split)
+        if subset in ("corpus", "queries") and split == "first_task":
+            dataset = dataset.rename_column("text", "input")
+        return dataset
+
+    nano_datasets.load.side_effect = load_split
+    evaluator = NanoRetrievalEvaluator(nano_datasets.dataset_id)
+    assert evaluator.evaluators[0].corpus == evaluator.evaluators[1].corpus
+    assert evaluator.evaluators[0].queries == evaluator.evaluators[1].queries
+    assert evaluator.corpus_column is None
+
+
+def test_nano_retrieval_evaluator_array_inputs(nano_datasets):
+    from datasets import Dataset
+
+    nano_datasets.subsets["corpus"] = Dataset.from_list([{"_id": "d0", "input": [0.1, 0.2]}]).with_format(
+        "numpy", columns=["input"], output_all_columns=True
+    )
+    evaluator = NanoRetrievalEvaluator(nano_datasets.dataset_id, splits=["first_task"])
+    np.testing.assert_allclose(evaluator.evaluators[0].corpus[0], [0.1, 0.2])
 
 
 def test_nanobeir_evaluator_is_nano_retrieval_evaluator() -> None:

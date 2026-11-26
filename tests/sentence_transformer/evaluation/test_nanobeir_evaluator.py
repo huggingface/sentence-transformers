@@ -13,7 +13,9 @@ from tests.utils import is_ci
 
 class LocalNanoBEIREvaluator(NanoBEIREvaluator):
     def _load_dataset_subset_split(self, subset: str, split: str, required_columns: list[str]):
-        return {
+        from datasets import Dataset
+
+        subsets = {
             "corpus": [
                 {"_id": "d0", "text": "Paris is the capital of France."},
                 {"_id": "d1", "text": "Berlin is the capital of Germany."},
@@ -24,7 +26,8 @@ class LocalNanoBEIREvaluator(NanoBEIREvaluator):
                 {"_id": "q1", "text": "Who painted the Mona Lisa?"},
             ],
             "qrels": [{"query-id": "q0", "corpus-id": "d0"}, {"query-id": "q1", "corpus-id": "d2"}],
-        }[subset]
+        }
+        return Dataset.from_list(subsets[subset])
 
 
 @pytest.mark.skipif(is_ci(), reason="Avoid rate limits when downloading NanoBEIR datasets in CI")

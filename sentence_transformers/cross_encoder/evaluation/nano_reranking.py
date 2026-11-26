@@ -12,6 +12,7 @@ from sentence_transformers.cross_encoder.evaluation.reranking import CrossEncode
 from sentence_transformers.util import is_datasets_available
 
 if TYPE_CHECKING:
+    from sentence_transformers.base.modality_types import SingleInput
     from sentence_transformers.cross_encoder.model import CrossEncoder
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,8 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
 
     The dataset must contain corpus, queries, and qrels subsets as described by
     :class:`~sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator`, plus a candidate subset
-    with query-id and corpus-ids columns for the same task splits. Candidate documents must be ranked.
+    with query-id and corpus-ids columns for the same task splits. The corpus and queries subsets use ``_id`` and
+    ``input`` columns, falling back to ``text`` if ``input`` is absent. Candidate documents must be ranked.
     Reports MAP, MRR@k, and nDCG@k for the candidate ranking and reranked results, per split and aggregated across splits.
 
     Args:
@@ -215,15 +217,13 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
     def _load_dataset(self, dataset_name: str, **ir_evaluator_kwargs) -> CrossEncoderRerankingEvaluator:
         split_name = self._get_split_name(dataset_name)
 
-        corpus = self._load_dataset_subset_split("corpus", split=split_name, required_columns=["_id", "text"])
-        queries = self._load_dataset_subset_split("queries", split=split_name, required_columns=["_id", "text"])
+        corpus_mapping = self._load_inputs("corpus", split_name)
+        query_mapping = self._load_inputs("queries", split_name)
         qrels = self._load_dataset_subset_split("qrels", split=split_name, required_columns=["query-id", "corpus-id"])
         candidates = self._load_dataset_subset_split(
             self.candidate_subset, split=split_name, required_columns=["query-id", "corpus-ids"]
         )
 
-        corpus_mapping = dict(zip(corpus["_id"], corpus["text"]))
-        query_mapping = dict(zip(queries["_id"], queries["text"]))
         qrels_mapping = {}
         for sample in qrels:
             corpus_ids = sample.get("corpus-id")
@@ -235,38 +235,30 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
             else:
                 qrels_mapping[sample["query-id"]].add(corpus_ids)
 
-        def mapper(
-            sample,
-            corpus_mapping: dict[str, str],
-            query_mapping: dict[str, str],
-            qrels_mapping: dict[str, set[str]],
-            rerank_k: int,
-        ):
-            query = query_mapping[sample["query-id"]]
-            positives = [corpus_mapping[positive_id] for positive_id in qrels_mapping[sample["query-id"]]]
-            documents = [corpus_mapping[document_id] for document_id in sample["corpus-ids"][:rerank_k]]
-            return {
-                "query": query,
-                "positive": positives,
-                "documents": documents,
+        samples = [
+            {
+                "query": query_mapping[sample["query-id"]],
+                "positive": [corpus_mapping[doc_id] for doc_id in qrels_mapping[sample["query-id"]]],
+                "documents": [corpus_mapping[doc_id] for doc_id in sample["corpus-ids"][: self.rerank_k]],
             }
-
-        relevance = candidates.map(
-            mapper,
-            fn_kwargs={
-                "corpus_mapping": corpus_mapping,
-                "query_mapping": query_mapping,
-                "qrels_mapping": qrels_mapping,
-                "rerank_k": self.rerank_k,
-            },
-        )
+            for sample in candidates
+        ]
 
         human_readable_name = self._get_human_readable_name(dataset_name)
         return CrossEncoderRerankingEvaluator(
-            samples=list(relevance),
+            samples=samples,
             name=human_readable_name,
             **ir_evaluator_kwargs,
         )
+
+    def _load_inputs(self, subset: str, split: str) -> dict[str, SingleInput]:
+        dataset = self._load_dataset_subset_split(subset, split=split, required_columns=["_id"])
+        column = "input" if "input" in dataset.column_names else "text"
+        if column not in dataset.column_names:
+            raise ValueError(
+                f"Subset '{subset}' split '{split}' from dataset '{self.dataset_id}' is missing required columns: {[column]}."
+            )
+        return dict(zip(dataset["_id"], dataset[column]))
 
     def _get_dataset_splits(self) -> list[str]:
         if not is_datasets_available():

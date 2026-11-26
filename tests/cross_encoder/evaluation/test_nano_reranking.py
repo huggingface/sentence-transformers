@@ -10,7 +10,13 @@ from sentence_transformers.cross_encoder.evaluation import (
 )
 
 
-def test_nano_reranking_aggregates_tasks_with_underscores(nano_datasets, reranker_bert_tiny_model, tmp_path, caplog):
+@pytest.mark.parametrize("input_column", ["text", "input"])
+def test_nano_reranking_aggregates_tasks_with_underscores(
+    input_column, nano_datasets, reranker_bert_tiny_model, tmp_path, caplog
+):
+    if input_column == "input":
+        for subset in ("corpus", "queries"):
+            nano_datasets.subsets[subset] = nano_datasets.subsets[subset].rename_column("text", "input")
     evaluator = CrossEncoderNanoRerankingEvaluator(
         nano_datasets.dataset_id, name="my_suite", at_k=1, aggregate_key="macro_mean"
     )
@@ -73,6 +79,46 @@ def test_nano_reranking_validation(nano_datasets):
         CrossEncoderNanoRerankingEvaluator(nano_datasets.dataset_id)
     del nano_datasets.subsets["bm25"]
     with pytest.raises(ValueError, match="Could not load subset 'bm25'"):
+        CrossEncoderNanoRerankingEvaluator(nano_datasets.dataset_id, splits=["first_task"])
+
+
+def test_nano_reranking_input_columns_per_split(nano_datasets):
+    load = nano_datasets.load.side_effect
+
+    def load_split(dataset_id, subset, split):
+        dataset = load(dataset_id, subset, split)
+        if subset in ("corpus", "queries") and split == "first_task":
+            dataset = dataset.add_column("input", [f"preferred {text}" for text in dataset["text"]])
+        return dataset
+
+    nano_datasets.load.side_effect = load_split
+    evaluator = CrossEncoderNanoRerankingEvaluator(nano_datasets.dataset_id)
+    first = evaluator.evaluators[0].samples[0]
+    second = evaluator.evaluators[1].samples[0]
+    assert first["query"] == f"preferred {second['query']}"
+    assert first["documents"] == [f"preferred {text}" for text in second["documents"]]
+    assert first["positive"] == ["preferred Paris is the capital of France."]
+
+
+def test_nano_reranking_image_inputs(nano_datasets):
+    from datasets import Dataset
+    from PIL import Image
+
+    images = [Image.new("RGB", (8, 8), color) for color in ("red", "blue")]
+    nano_datasets.subsets["corpus"] = Dataset.from_list(
+        [{"_id": f"d{index}", "input": image} for index, image in enumerate(images)]
+    )
+    evaluator = CrossEncoderNanoRerankingEvaluator(nano_datasets.dataset_id, splits=["first_task"])
+    sample = evaluator.evaluators[0].samples[0]
+    assert all(isinstance(document, Image.Image) for document in sample["documents"])
+    assert sample["documents"][0].getpixel((0, 0)) == (0, 0, 255)
+    assert sample["positive"][0] is sample["documents"][1]
+
+
+@pytest.mark.parametrize("subset", ["corpus", "queries"])
+def test_nano_reranking_missing_input_column(subset, nano_datasets):
+    nano_datasets.subsets[subset] = nano_datasets.subsets[subset].remove_columns("text")
+    with pytest.raises(ValueError, match=f"Subset '{subset}'.*missing required columns.*text"):
         CrossEncoderNanoRerankingEvaluator(nano_datasets.dataset_id, splits=["first_task"])
 
 

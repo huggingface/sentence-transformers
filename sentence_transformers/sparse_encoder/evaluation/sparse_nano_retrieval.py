@@ -35,6 +35,8 @@ class SparseNanoRetrievalEvaluator(NanoRetrievalEvaluator):
         splits (list[str], optional): Tasks to evaluate. Defaults to all qrels splits.
         name (str, optional): Collection name used as the prefix of metric names and output files.
             Defaults to the last part of ``dataset_id``, e.g. ``"NanoMTEB-Dutch"``.
+        corpus_column (str, optional): Column of the corpus subset with the documents to encode.
+            Defaults to None, which selects ``"input"`` if present, otherwise ``"text"``.
         max_active_dims (int, optional): Maximum number of active dimensions per embedding. An explicit value
             is appended to evaluator names. Defaults to None (use the model's current ``max_active_dims``).
         mrr_at_k (list[int]): Rank cutoffs for MRR. Defaults to ``[10]``.
