@@ -1425,7 +1425,7 @@ class SparseEncoder(BaseModel):
         if not embeddings.is_sparse:
             embeddings = embeddings.to_sparse()
 
-        embeddings = embeddings.coalesce()
+        embeddings = embeddings.coalesce().cpu()
         indices = embeddings.indices()
         values = embeddings.values()
 
@@ -1437,6 +1437,7 @@ class SparseEncoder(BaseModel):
         sample_counts = torch.bincount(sample_indices, minlength=embeddings.size(0)).tolist()
 
         results = []
+        tokenizer = self.tokenizer
         start_idx = 0
         for count in sample_counts:
             if count == 0:
@@ -1446,17 +1447,13 @@ class SparseEncoder(BaseModel):
             sample_values = values[start_idx : start_idx + count]
             sample_tokens = token_indices[start_idx : start_idx + count]
 
-            effective_k = min(top_k, count) if top_k is not None else count
-            if effective_k < count:
-                top_values, top_idx = torch.topk(sample_values, effective_k)
-                sample_tokens = sample_tokens[top_idx]
-                sample_values = top_values
+            if top_k is not None and top_k < count:
+                sample_values, sorted_idx = torch.topk(sample_values, top_k)
             else:
                 sorted_idx = torch.argsort(sample_values, descending=True)
                 sample_values = sample_values[sorted_idx]
-                sample_tokens = sample_tokens[sorted_idx]
 
-            token_strs = self.tokenizer.convert_ids_to_tokens(sample_tokens.tolist())
+            token_strs = tokenizer.convert_ids_to_tokens(sample_tokens[sorted_idx].tolist())
             results.append(list(zip(token_strs, sample_values.tolist())))
 
             start_idx += count
