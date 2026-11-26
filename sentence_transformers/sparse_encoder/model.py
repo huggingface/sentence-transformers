@@ -1333,9 +1333,8 @@ class SparseEncoder(BaseModel):
         """
         Compute the intersection of two sparse embeddings via element-wise multiplication.
 
-        For each dimension, the result retains the minimum contribution from both embeddings, keeping only
-        dimensions where both inputs are positive (i.e., shared active dimensions). This is useful for
-        token-level matching and interpretability when combined with :meth:`decode`.
+        Only dimensions with a positive element-wise product are retained. This is useful for token-level matching
+        and interpretability when combined with :meth:`decode`.
 
         Args:
             embeddings_1 (torch.Tensor): First embedding tensor of shape ``(vocab_size,)``.
@@ -1372,8 +1371,11 @@ class SparseEncoder(BaseModel):
 
         if embeddings_2.ndim == 1:
             intersection = embeddings_1 * embeddings_2
+        elif embeddings_2.ndim == 2 and embeddings_2.sparse_dim() == 2 and embeddings_1.sparse_dim() == 1:
+            # Densify only the query to broadcast across the sparse document batch.
+            intersection = embeddings_1.to_dense() * embeddings_2
         elif embeddings_2.ndim == 2:
-            # Element-wise multiplication per row. Python loop is required as sparse broadcasting is limited
+            # Hybrid COO tensors store a dense block per index.
             intersection = torch.stack([embeddings_1 * embedding for embedding in embeddings_2])
         else:
             raise ValueError(f"Expected 1D or 2D tensor for embeddings_2, but got {embeddings_2.shape} shape.")
@@ -1386,6 +1388,7 @@ class SparseEncoder(BaseModel):
             intersection.values()[active_dims],
             size=intersection.size(),
             device=intersection.device,
+            is_coalesced=True,
         )
 
         return intersection
