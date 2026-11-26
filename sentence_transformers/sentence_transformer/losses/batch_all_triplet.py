@@ -3,11 +3,23 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+import torch
 from torch import Tensor, nn
+from torch.utils.checkpoint import checkpoint
 
 from sentence_transformers.sentence_transformer.model import SentenceTransformer
 
 from .batch_hard_triplet import BatchHardTripletLoss, BatchHardTripletLossDistanceFunction
+
+
+def _reduce_triplet_pairs(
+    distances: Tensor, labels: Tensor, anchors: Tensor, positives: Tensor, margin: float
+) -> tuple[Tensor, Tensor]:
+    hinges = distances[anchors, positives, None] - distances[anchors] + margin
+    negatives = labels[anchors, None] != labels[None, :]
+    losses = negatives.float() * hinges
+    losses = losses.masked_fill(losses < 0, 0)
+    return losses.sum(), torch.count_nonzero(losses > 1e-16)
 
 
 class BatchAllTripletLoss(nn.Module):
@@ -127,24 +139,30 @@ class BatchAllTripletLoss(nn.Module):
         anchor_indices, positive_indices = BatchHardTripletLoss.get_anchor_positive_triplet_mask(labels).nonzero(
             as_tuple=True
         )
-        anchor_positive_dist = pairwise_dist[anchor_indices, positive_indices].unsqueeze(1)
-        triplet_loss = anchor_positive_dist - pairwise_dist[anchor_indices] + self.triplet_margin
-
-        # A negative must have a different label from the anchor (and therefore the positive).
-        mask = labels[anchor_indices].unsqueeze(1) != labels.unsqueeze(0)
-        triplet_loss = mask.float() * triplet_loss
-
-        # Remove negative losses (i.e. the easy triplets)
-        triplet_loss[triplet_loss < 0] = 0
-
-        # Count number of positive triplets (where triplet_loss > 0)
-        valid_triplets = triplet_loss[triplet_loss > 1e-16]
-        num_positive_triplets = valid_triplets.size(0)
-
-        # Get final mean triplet loss over the positive valid triplets
-        triplet_loss = triplet_loss.sum() / (num_positive_triplets + 1e-16)
-
-        return triplet_loss
+        # Bound each comparison matrix to O(B²), even when one label accounts for most
+        # of the batch. Keep small batches on the direct path to avoid checkpoint overhead.
+        pairs_per_chunk = max(batch_size, 1024)
+        if anchor_indices.numel() <= pairs_per_chunk:
+            total, count = _reduce_triplet_pairs(
+                pairwise_dist, labels, anchor_indices, positive_indices, self.triplet_margin
+            )
+        else:
+            totals, counts = [], []
+            for anchors, positives in zip(
+                anchor_indices.split(pairs_per_chunk), positive_indices.split(pairs_per_chunk)
+            ):
+                args = (pairwise_dist, labels, anchors, positives, self.triplet_margin)
+                if pairwise_dist.requires_grad and torch.is_grad_enabled():
+                    # Recompute the hinge mask in backward instead of saving one per chunk.
+                    subtotal, subcount = checkpoint(
+                        _reduce_triplet_pairs, *args, use_reentrant=False, preserve_rng_state=False
+                    )
+                else:
+                    subtotal, subcount = _reduce_triplet_pairs(*args)
+                totals.append(subtotal)
+                counts.append(subcount)
+            total, count = torch.stack(totals).sum(), torch.stack(counts).sum()
+        return total / (count.to(total.dtype) + 1e-16)
 
     def get_config_dict(self) -> dict[str, Any]:
         return {

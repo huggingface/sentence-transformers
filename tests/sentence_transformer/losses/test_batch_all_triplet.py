@@ -85,3 +85,40 @@ def test_batch_all_retains_gradient_at_zero_hinge():
 
     torch.testing.assert_close(loss, torch.tensor(4 / 3))
     torch.testing.assert_close(embeddings.grad, torch.tensor([[0.0], [5 / 3], [-7 / 3], [2 / 3]]))
+
+
+@pytest.mark.parametrize("ties", [False, True])
+def test_batch_all_dense_labels_match_reference_with_bounded_saved_storage(ties):
+    # The dominant class produces more than B² valid (anchor, positive, negative) triplets.
+    batch_size = 64
+    labels = torch.tensor([0] * 48 + [1] * 16)
+    if ties:
+        embeddings = (torch.arange(batch_size) % 4).float().view(-1, 1)
+    else:
+        embeddings = torch.randn(batch_size, 4, generator=torch.Generator().manual_seed(42))
+    embeddings.requires_grad_()
+    loss_fn = BatchAllTripletLoss(nn.Identity(), margin=1.0)
+    saved = {}
+
+    def pack(tensor):
+        # Checkpoints can save several views of the same underlying storage.
+        storage = tensor.untyped_storage()
+        saved[storage.data_ptr()] = storage.nbytes()
+        return tensor
+
+    with torch.autograd.graph.saved_tensors_hooks(pack, lambda tensor: tensor):
+        loss = loss_fn.compute_loss_from_embeddings([embeddings], labels)
+    loss.backward()
+    assert sum(saved.values()) < 128 * batch_size**2
+
+    reference = embeddings.detach().requires_grad_()
+    distances = loss_fn.distance_metric(reference)
+    different = labels[:, None] != labels[None, :]
+    positives = ~different & ~torch.eye(batch_size, dtype=torch.bool)
+    hinges = (distances[:, :, None] - distances[:, None, :] + 1.0)[positives[:, :, None] & different[:, None, :]]
+    expected = torch.where(hinges < 0, 0.0, hinges).sum() / (hinges > 1e-16).sum()
+    expected.backward()
+    torch.testing.assert_close(loss, expected)
+    torch.testing.assert_close(embeddings.grad, reference.grad)
+    with torch.no_grad():
+        torch.testing.assert_close(loss_fn.compute_loss_from_embeddings([embeddings], labels), expected)
