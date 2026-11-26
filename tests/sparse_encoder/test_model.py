@@ -455,6 +455,24 @@ def test_splade_pooling_chunk_size(splade_bert_tiny_model: SparseEncoder):
     assert model[1].chunk_size == 13
 
 
+@pytest.mark.parametrize("inference_device", ["cpu", "cuda"], indirect=True)
+def test_batched_intersection(inference_device: str) -> None:
+    query = torch.sparse_coo_tensor([[3, 1, 3]], [1.0, 2.0, 3.0], (8,), device=inference_device)
+    docs = torch.sparse_coo_tensor(
+        [[2, 0, 0, 0, 2], [7, 1, 1, 3, 1]], [3.0, 2.0, 1.0, -1.0, 0.0], (3, 8), device=inference_device
+    )
+    for query_input in (query, torch.zeros_like(query)):
+        result = SparseEncoder.intersection(query_input, docs).coalesce()
+        expected = (query_input.to_dense() * docs.to_dense()).clamp_min(0).to_sparse().coalesce()
+        torch.testing.assert_close(result.indices(), expected.indices())
+        torch.testing.assert_close(result.values(), expected.values())
+
+    empty_batch = torch.empty(0, 8, device=inference_device).to_sparse()
+    result = SparseEncoder.intersection(query, empty_batch)
+    assert result.shape == (0, 8)
+    assert result._nnz() == 0
+
+
 def test_intersection(splade_bert_tiny_model: SparseEncoder):
     model = splade_bert_tiny_model
 
