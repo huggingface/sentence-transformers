@@ -36,8 +36,6 @@ class CrossEncoderTrainingArguments(BaseTrainingArguments):
             columns are combined into pairs, per-column router mappings are not supported. Only a per-dataset
             mapping is accepted, e.g. ``{'dataset_a': 'slow', 'dataset_b': 'fast'}``.
         learning_rate_mapping (`Dict[str, float] | None`, *optional*):
-            A mapping of parameter name regular expressions to learning rates. This allows you to set different
-            learning rates for different parts of the model, e.g., `{'SparseStaticEmbedding\.*': 1e-3}` for the
-            SparseStaticEmbedding module. This is useful when you want to fine-tune specific parts of the model
-            with different learning rates.
+            A mapping of parameter name regular expressions to learning rates, e.g.,
+            `{r'\.classifier\.': 1e-3}` for the classification head of a BERT-based CrossEncoder.
     """

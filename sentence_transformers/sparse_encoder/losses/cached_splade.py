@@ -118,7 +118,11 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
 
                 from datasets import Dataset
 
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import (
+                    CachedSpladeLoss,
+                    SparseMultipleNegativesRankingLoss,
+                )
 
                 model = SparseEncoder("distilbert/distilbert-base-uncased")
                 train_dataset = Dataset.from_dict(
@@ -127,9 +131,9 @@ class CachedSpladeLoss(CachedLossMixin, SpladeLoss):
                         "positive": ["It's so sunny.", "He took the car to the office."],
                     }
                 )
-                loss = losses.CachedSpladeLoss(
+                loss = CachedSpladeLoss(
                     model=model,
-                    loss=losses.SparseMultipleNegativesRankingLoss(model),
+                    loss=SparseMultipleNegativesRankingLoss(model),
                     document_regularizer_weight=3e-5,
                     query_regularizer_weight=5e-5,
                     mini_batch_size=32,

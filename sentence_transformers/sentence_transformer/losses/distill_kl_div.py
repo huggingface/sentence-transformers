@@ -80,7 +80,8 @@ class DistillKLDivLoss(nn.Module):
 
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import DistillKLDivLoss
                 from datasets import Dataset
                 import torch
 
@@ -106,7 +107,7 @@ class DistillKLDivLoss(nn.Module):
                     }
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.DistillKLDivLoss(student_model)
+                loss = DistillKLDivLoss(student_model)
 
                 trainer = SentenceTransformerTrainer(model=student_model, train_dataset=train_dataset, loss=loss)
                 trainer.train()
@@ -115,7 +116,8 @@ class DistillKLDivLoss(nn.Module):
 
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import DistillKLDivLoss
                 from datasets import Dataset
                 import torch
 
@@ -148,7 +150,7 @@ class DistillKLDivLoss(nn.Module):
                     }
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.DistillKLDivLoss(student_model)
+                loss = DistillKLDivLoss(student_model)
 
                 trainer = SentenceTransformerTrainer(model=student_model, train_dataset=train_dataset, loss=loss)
                 trainer.train()

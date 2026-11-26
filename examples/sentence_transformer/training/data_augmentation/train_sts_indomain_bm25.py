@@ -1,3 +1,10 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+#     "elasticsearch>=7,<8",
+# ]
+# ///
 """
 The script shows how to train Augmented SBERT (In-Domain) strategy for STSb dataset with BM25 sampling.
 We utilise easy and practical elasticsearch (https://www.elastic.co/) for BM25 sampling.
@@ -261,7 +268,7 @@ final_output_dir = f"{sentence_transformer_path}/final"
 sentence_transformer.save(final_output_dir)
 
 # (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 model_name = model_name if "/" not in model_name else model_name.split("/")[-1]
 try:
     sentence_transformer.push_to_hub(f"{model_name}-augmentation-indomain-bm25-sts")

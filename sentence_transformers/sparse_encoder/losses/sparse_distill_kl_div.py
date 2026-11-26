@@ -69,7 +69,8 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
                 import torch
                 from datasets import Dataset
 
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseDistillKLDivLoss, SpladeLoss
 
                 student_model = SparseEncoder("distilbert/distilbert-base-uncased")
                 teacher_model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
@@ -95,8 +96,8 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
 
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.SpladeLoss(
-                    student_model, loss=losses.SparseDistillKLDivLoss(student_model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
+                loss = SpladeLoss(
+                    student_model, loss=SparseDistillKLDivLoss(student_model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
                 )
 
                 trainer = SparseEncoderTrainer(model=student_model, train_dataset=train_dataset, loss=loss)
@@ -110,7 +111,8 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
                 import torch
                 from datasets import Dataset
 
-                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer, losses
+                from sentence_transformers.sparse_encoder import SparseEncoder, SparseEncoderTrainer
+                from sentence_transformers.sparse_encoder.losses import SparseDistillKLDivLoss, SpladeLoss
 
                 student_model = SparseEncoder("distilbert/distilbert-base-uncased")
                 teacher_model = SparseEncoder("naver/splade-cocondenser-ensembledistil")
@@ -139,8 +141,8 @@ class SparseDistillKLDivLoss(DistillKLDivLoss):
 
 
                 train_dataset = train_dataset.map(compute_labels, batched=True)
-                loss = losses.SpladeLoss(
-                    student_model, loss=losses.SparseDistillKLDivLoss(student_model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
+                loss = SpladeLoss(
+                    student_model, loss=SparseDistillKLDivLoss(student_model), document_regularizer_weight=3e-5, query_regularizer_weight=5e-5
                 )
 
                 trainer = SparseEncoderTrainer(model=student_model, train_dataset=train_dataset, loss=loss)

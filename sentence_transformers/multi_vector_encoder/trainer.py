@@ -49,7 +49,10 @@ class MultiVectorEncoderTrainer(BaseTrainer):
             :func:`~sentence_transformers.util.dataset.resolve_ids` to build the numbered columns from
             ID-only KD datasets.
         eval_dataset: Evaluation dataset.
-        loss: A loss class, dict of dataset-name → loss, callable returning a loss, or dict of callables.
+        loss: A loss class instance, a function that returns a loss class instance given a model,
+            or a dictionary mapping dataset names to either option.
+            With ``model_init``, provide a loss class or factory, or a dictionary of them, instead of initialized
+            loss instances.
             Defaults to :class:`~sentence_transformers.multi_vector_encoder.losses.MultiVectorMultipleNegativesRankingLoss`.
         evaluator: A :class:`~sentence_transformers.base.evaluation.BaseEvaluator` (or list of them) for
             mid-training evaluation.

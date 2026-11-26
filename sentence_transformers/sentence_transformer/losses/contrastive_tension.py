@@ -128,14 +128,19 @@ class ContrastiveTensionLoss(nn.Module):
 
     def __init__(self, model: SentenceTransformer) -> None:
         super().__init__()
-        self.model2 = model  # This will be the final model used during the inference time.
+        self.model = model
         self.model1 = copy.deepcopy(model)
         self.criterion = nn.BCEWithLogitsLoss(reduction="sum")
+
+    @property
+    def model2(self) -> SentenceTransformer:
+        """Backward-compatibility alias for :attr:`model`."""
+        return self.model
 
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
         sentence_features1, sentence_features2 = tuple(sentence_features)
         reps_1 = self.model1(sentence_features1)["sentence_embedding"]  # (bsz, hdim)
-        reps_2 = self.model2(sentence_features2)["sentence_embedding"]
+        reps_2 = self.model(sentence_features2)["sentence_embedding"]
 
         sim_scores = (
             torch.matmul(reps_1[:, None], reps_2[:, :, None]).squeeze(-1).squeeze(-1)
@@ -217,7 +222,8 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, losses
+                from sentence_transformers import SentenceTransformer
+                from sentence_transformers.sentence_transformer.losses import ContrastiveTensionLossInBatchNegatives
                 from datasets import Dataset
 
                 model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
@@ -230,7 +236,7 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
                     ]
                 })
 
-                train_loss = losses.ContrastiveTensionLossInBatchNegatives(model=model)
+                train_loss = ContrastiveTensionLossInBatchNegatives(model=model)
 
                 args = SentenceTransformerTrainingArguments(
                     num_train_epochs=10,
@@ -251,16 +257,21 @@ class ContrastiveTensionLossInBatchNegatives(nn.Module):
                 trainer.train()
         """
         super().__init__()
-        self.model2 = model  # This will be the final model used during the inference time.
+        self.model = model
         self.model1 = copy.deepcopy(model)
         self.similarity_fct = similarity_fct
         self.cross_entropy_loss = nn.CrossEntropyLoss()
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(scale))
 
+    @property
+    def model2(self) -> SentenceTransformer:
+        """Backward-compatibility alias for :attr:`model`."""
+        return self.model
+
     def forward(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor) -> Tensor:
         sentence_features = sentence_features[0]
         embeddings_a = self.model1(dict(sentence_features))["sentence_embedding"]  # (bsz, hdim)
-        embeddings_b = self.model2(dict(sentence_features))["sentence_embedding"]
+        embeddings_b = self.model(dict(sentence_features))["sentence_embedding"]
 
         scores = self.similarity_fct(embeddings_a, embeddings_b) * self.logit_scale.exp()  # self.scale
         labels = torch.arange(len(scores), dtype=torch.long, device=scores.device)

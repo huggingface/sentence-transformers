@@ -5,8 +5,9 @@ from unittest.mock import PropertyMock, patch
 
 import pytest
 
-from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
 from sentence_transformers.base.model_card import generate_model_card
+from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss, MultipleNegativesRankingLoss
 from sentence_transformers.util import is_datasets_available, is_training_available
 
 try:
@@ -132,7 +133,7 @@ def test_model_card_base(
     # This adds data to model.model_card_data
     guide_loss = deepcopy(stsb_bert_tiny_model)
     guide_loss.trust_remote_code = True  # Let's test if we can see this again in the model card
-    loss = losses.GISTEmbedLoss(
+    loss = GISTEmbedLoss(
         model,
         guide=guide_loss,
         temperature=0.05,
@@ -372,7 +373,7 @@ def test_model_card_set_transform(stsb_bert_tiny_model: SentenceTransformer, dum
     dataset = dummy_dataset.select(range(len(dummy_dataset)))
     dataset.set_transform(dummy_transform)
 
-    loss = losses.MultipleNegativesRankingLoss(model)
+    loss = MultipleNegativesRankingLoss(model)
     SentenceTransformerTrainer(
         model,
         train_dataset=dataset,

@@ -985,8 +985,8 @@ The :meth:`~sentence_transformers.sentence_transformer.model.SentenceTransformer
            # mapping regular expressions of parameter names to learning rates
            # Matching is done with 'search', not just 'match' or 'fullmatch'
            learning_rate_mapping = {
-               "SparseStaticEmbedding": 1e-4,
-               "linear_.*": 1e-5,
+               r"sub_modules\.query\.": 1e-4,
+               r"\.linear\.": 1e-5,
            }
 
            args = SentenceTransformerTrainingArguments(

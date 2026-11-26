@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This scripts runs the evaluation (dev & test) for the AskUbuntu dataset
 

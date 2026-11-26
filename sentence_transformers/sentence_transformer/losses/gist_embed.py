@@ -40,6 +40,7 @@ class GISTEmbedLoss(nn.Module):
         Args:
             model: SentenceTransformer model based on a `transformers` model.
             guide: SentenceTransformer model to guide the in-batch negative sample selection.
+                Its parameters are frozen unless shared with ``model``.
             temperature: Temperature parameter to scale the cosine similarities. Inverse of the ``scale`` parameter
                 in :class:`MultipleNegativesRankingLoss`.
             margin_strategy: Strategy used for false negative filtering. One of {"absolute", "relative"}.
@@ -82,7 +83,8 @@ class GISTEmbedLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import GISTEmbedLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -91,7 +93,7 @@ class GISTEmbedLoss(nn.Module):
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.GISTEmbedLoss(model, guide)
+                loss = GISTEmbedLoss(model, guide)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,
@@ -133,6 +135,11 @@ class GISTEmbedLoss(nn.Module):
         self.contrast_positives = contrast_positives
         self.gather_across_devices = gather_across_devices
         self.cross_entropy_loss = nn.CrossEntropyLoss()
+
+        model_parameters = {id(parameter) for parameter in model.parameters()}
+        for parameter in guide.parameters():
+            if id(parameter) not in model_parameters:
+                parameter.requires_grad_(False)
 
     def sim_matrix(self, embed1: Tensor, embed2: Tensor) -> Tensor:
         return self.similarity_fct(embed1.unsqueeze(1), embed2.unsqueeze(0))

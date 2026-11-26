@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 The script shows how to train Augmented SBERT (Domain-Transfer/Cross-Domain) strategy for STSb-QQP dataset.
 For our example below we consider STSb (source) and QQP (target) datasets respectively.
@@ -136,6 +142,12 @@ ce_trainer = CrossEncoderTrainer(
 ce_trainer.train()
 cross_encoder.save_pretrained(f"{cross_encoder_path}/final")
 
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
+try:
+    cross_encoder.push_to_hub(f"{model_name.split('/')[-1]}-augmentation-qqp-crossdomain-cross-encoder")
+except Exception:
+    logging.exception("Could not upload the model. It is saved locally in %s.", f"{cross_encoder_path}/final")
+
 ##################################################################
 #
 # Step 2: Label QQP train dataset using cross-encoder (BERT) model
@@ -215,3 +227,9 @@ bi_encoder.save_pretrained(f"{bi_encoder_path}/final")
 logging.info("Read QQP test dataset")
 evaluator = BinaryClassificationEvaluator(qqp_test["sentence1"], qqp_test["sentence2"], qqp_test["label"])
 bi_encoder.evaluate(evaluator)
+
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
+try:
+    bi_encoder.push_to_hub(f"{model_name.split('/')[-1]}-augmentation-qqp-crossdomain")
+except Exception:
+    logging.exception("Could not upload the model. It is saved locally in %s.", f"{bi_encoder_path}/final")

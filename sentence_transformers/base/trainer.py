@@ -116,10 +116,10 @@ class BaseTrainer(Trainer, ABC):
         loss (Optional[Union[:class:`torch.nn.Module`, Dict[str, :class:`torch.nn.Module`],\
             Callable[[:class:`~sentence_transformers.base.model.BaseModel`], :class:`torch.nn.Module`],\
             Dict[str, Callable[[:class:`~sentence_transformers.base.model.BaseModel`]]]], *optional*):
-            The loss function to use for training. Can either be a loss class instance, a dictionary mapping
-            dataset names to loss class instances, a function that returns a loss class instance given a model,
-            or a dictionary mapping dataset names to functions that return a loss class instance given a model.
-            In practice, the latter two are primarily used for hyper-parameter optimization.
+            The loss function to use for training. Can be a loss class instance, a function that returns a loss
+            class instance given a model, or a dictionary mapping dataset names to either option.
+            With ``model_init``, provide a loss class or factory, or a dictionary of them, instead of initialized
+            loss instances.
         evaluator (Union[:class:`~sentence_transformers.base.evaluation.BaseEvaluator`,\
             List[:class:`~sentence_transformers.base.evaluation.BaseEvaluator`]], *optional*):
             The evaluator instance for useful evaluation metrics during training. You can use an ``evaluator`` with
@@ -199,6 +199,15 @@ class BaseTrainer(Trainer, ABC):
             raise ValueError(
                 f"Please pass an instance of `{fullname(self.training_args_class)}` as the `args` argument."
             )
+
+        if model_init is not None:
+            for loss_fn in loss.values() if isinstance(loss, dict) else [loss]:
+                if isinstance(loss_fn, torch.nn.Module):
+                    raise ValueError(
+                        "When using `model_init`, pass a loss class, a function that creates a loss for each model, "
+                        "or a dictionary mapping dataset names to these classes or functions, "
+                        "instead of an initialized loss instance."
+                    )
 
         if model is None:
             if model_init is not None:
@@ -319,9 +328,14 @@ class BaseTrainer(Trainer, ABC):
 
         if loss is None:
             loss = self.get_default_loss(self.model)
+        self.loss_init = None
+        if model_init is not None:
+            self.loss_init = loss.copy() if isinstance(loss, dict) else loss
 
         if isinstance(loss, dict):
-            self.loss = {dataset_name: self.prepare_loss(loss_fn, model) for dataset_name, loss_fn in loss.items()}
+            self.loss = {
+                dataset_name: self.prepare_loss(loss_fn, self.model) for dataset_name, loss_fn in loss.items()
+            }
             for dataset_name, dataset in zip(["train", "eval"], [train_dataset, eval_dataset]):
                 if dataset is None:
                     continue
@@ -335,7 +349,7 @@ class BaseTrainer(Trainer, ABC):
                         f"Currently, {sorted(missing)} occur{'s' if len(missing) == 1 else ''} in `{dataset_name}_dataset` but not in `loss`."
                     )
         else:
-            self.loss = self.prepare_loss(loss, model)
+            self.loss = self.prepare_loss(loss, self.model)
 
         # If evaluator is a list, we wrap it in a SequentialEvaluator
         if evaluator is not None and not isinstance(evaluator, BaseEvaluator):
@@ -414,26 +428,18 @@ class BaseTrainer(Trainer, ABC):
 
     def call_model_init(self, trial=None) -> BaseModel:
         model = super().call_model_init(trial=trial)
-        # If the Trainer already has a loss, then we'll want to override the model in the loss function
         if not hasattr(self, "loss"):
             return model
 
-        # Multi-loss training:
-        if isinstance(self.loss, dict):
-            for key, loss_fn in self.loss.items():
-                # If a loss function is not yet initialized, we initialize it here
+        if isinstance(self.loss_init, dict):
+            for key, loss_fn in self.loss_init.items():
                 if not isinstance(loss_fn, torch.nn.Module):
-                    self.loss[key] = loss_fn(model)
-                # Otherwise, we override the original model with the updated model in the loss function
-                elif hasattr(loss_fn, "model"):
+                    self.loss[key] = self.prepare_loss(loss_fn, model)
+                else:
                     self.loss[key] = self.override_model_in_loss(loss_fn, model)
-
-        # Loss is a function accepting a model as an argument
-        elif not isinstance(self.loss, torch.nn.Module):
-            self.loss = self.loss(model)
-
-        # Loss is an initialized torch.nn.Module
-        elif hasattr(self.loss, "model"):
+        elif not isinstance(self.loss_init, torch.nn.Module):
+            self.loss = self.prepare_loss(self.loss_init, model)
+        else:
             self.loss = self.override_model_in_loss(self.loss, model)
         return model
 
@@ -442,6 +448,16 @@ class BaseTrainer(Trainer, ABC):
 
         for name, child in loss.named_children():
             if name == "model" and isinstance(child, BaseModel):
+                if isinstance(getattr(model, "_orig_mod", model), torch.nn.parallel.DistributedDataParallel):
+                    model_parameters = {id(parameter) for parameter in model.parameters()}
+                    if any(
+                        parameter.requires_grad and id(parameter) not in model_parameters
+                        for parameter in loss.parameters()
+                    ):
+                        raise ValueError(
+                            f"{type(loss).__name__} has trainable parameters outside `model` that DDP does not "
+                            "synchronize. Use single-device training for this loss."
+                        )
                 # DDP/compile wrappers don't expose BaseModel methods. Bind the ones
                 # losses call inside `forward` (CE: `preprocess`, MatryoshkaLoss:
                 # `_get_untruncated_embedding_dimension`).
@@ -458,10 +474,16 @@ class BaseTrainer(Trainer, ABC):
         loss: Callable[[BaseModel], torch.nn.Module] | torch.nn.Module,
         model: BaseModel,
     ) -> torch.nn.Module:
-        if isinstance(loss, torch.nn.Module):
-            loss = loss.to(model.device)
-        else:
-            loss = loss(model).to(model.device)
+        device = self.args.device if self.place_model_on_device else model.device
+        if not isinstance(loss, torch.nn.Module):
+            loss = loss(model)
+        loss = loss.to(device)
+
+        if not hasattr(loss, "model"):
+            raise ValueError(
+                f"{type(loss).__name__} must store the model as `self.model` to be used with {type(self).__name__}. "
+                "The trainer needs this attribute to replace the model when wrapping or reinitializing it."
+            )
 
         return loss
 
@@ -502,12 +524,8 @@ class BaseTrainer(Trainer, ABC):
             loss_fn = loss_fn[dataset_name]
 
         # Insert the wrapped (e.g. distributed or compiled) model into the loss function,
-        # if the loss stores the model. Only called once per process
-        if (
-            model == self.model_wrapped
-            and hasattr(loss_fn, "model")  # Only if the loss stores the model
-            and loss_fn.model != model  # Only if the wrapped model is not already stored
-        ):
+        # if it is not already stored. Only called once per process
+        if model == self.model_wrapped and loss_fn.model != model:
             loss_fn = self.override_model_in_loss(loss_fn, model)
         loss = loss_fn(features, labels)
         if isinstance(loss, dict):

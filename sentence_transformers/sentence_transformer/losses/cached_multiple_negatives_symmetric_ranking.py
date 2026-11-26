@@ -101,7 +101,10 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import (
+                    CachedMultipleNegativesSymmetricRankingLoss,
+                )
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -109,7 +112,7 @@ class CachedMultipleNegativesSymmetricRankingLoss(CachedMultipleNegativesRanking
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.CachedMultipleNegativesSymmetricRankingLoss(model, mini_batch_size=32)
+                loss = CachedMultipleNegativesSymmetricRankingLoss(model, mini_batch_size=32)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

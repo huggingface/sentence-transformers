@@ -1,3 +1,9 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "sentence-transformers[train]>=6.3.0",
+# ]
+# ///
 """
 This examples trains a CrossEncoder for the Quora Duplicate Questions Detection task. A CrossEncoder takes a sentence pair
 as input and outputs a label. Here, it output a continuous labels 0...1 to indicate the similarity between the input pair.
@@ -102,7 +108,7 @@ final_output_dir = f"{output_dir}/final"
 model.save_pretrained(final_output_dir)
 
 # 9. (Optional) save the model to the Hugging Face Hub!
-# It is recommended to run `hf auth login` to log into your Hugging Face account first
+# Uploading requires a token with write access, provided via `hf auth login` or `HF_TOKEN`.
 try:
     model.push_to_hub(run_name)
 except Exception:

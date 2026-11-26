@@ -103,7 +103,11 @@ class Matryoshka2dLoss(AdaptiveLayerLoss):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import (
+                    Matryoshka2dLoss,
+                    MultipleNegativesRankingLoss,
+                )
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -111,8 +115,8 @@ class Matryoshka2dLoss(AdaptiveLayerLoss):
                     "anchor": ["It's nice weather outside today.", "He drove to work."],
                     "positive": ["It's so sunny.", "He took the car to the office."],
                 })
-                loss = losses.MultipleNegativesRankingLoss(model)
-                loss = losses.Matryoshka2dLoss(model, loss, [768, 512, 256, 128, 64])
+                loss = MultipleNegativesRankingLoss(model)
+                loss = Matryoshka2dLoss(model, loss, [768, 512, 256, 128, 64])
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

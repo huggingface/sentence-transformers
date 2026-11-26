@@ -62,7 +62,8 @@ class ContrastiveLoss(nn.Module):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import ContrastiveLoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -71,7 +72,7 @@ class ContrastiveLoss(nn.Module):
                     "sentence2": ["It's so sunny.", "She walked to the store."],
                     "label": [1, 0],
                 })
-                loss = losses.ContrastiveLoss(model)
+                loss = ContrastiveLoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

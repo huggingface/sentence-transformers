@@ -68,7 +68,8 @@ class AnglELoss(CoSENTLoss):
         Example:
             ::
 
-                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer, losses
+                from sentence_transformers import SentenceTransformer, SentenceTransformerTrainer
+                from sentence_transformers.sentence_transformer.losses import AnglELoss
                 from datasets import Dataset
 
                 model = SentenceTransformer("microsoft/mpnet-base")
@@ -77,7 +78,7 @@ class AnglELoss(CoSENTLoss):
                     "sentence2": ["It's so sunny.", "She walked to the store."],
                     "score": [1.0, 0.3],
                 })
-                loss = losses.AnglELoss(model)
+                loss = AnglELoss(model)
 
                 trainer = SentenceTransformerTrainer(
                     model=model,

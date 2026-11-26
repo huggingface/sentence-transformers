@@ -7,7 +7,7 @@ from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import torch
@@ -20,13 +20,26 @@ from tokenizers.pre_tokenizers import Whitespace
 from transformers import TrainerCallback
 
 from sentence_transformers import (
+    CrossEncoderTrainer,
+    CrossEncoderTrainingArguments,
     SentenceTransformer,
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
 )
 from sentence_transformers.base.modules import Normalize, Router
 from sentence_transformers.base.training_args import MultiDatasetBatchSamplers
-from sentence_transformers.sentence_transformer.losses import CosineSimilarityLoss, MSELoss, SoftmaxLoss
+from sentence_transformers.sentence_transformer.losses import (
+    CachedGISTEmbedLoss,
+    ContrastiveTensionLoss,
+    ContrastiveTensionLossInBatchNegatives,
+    CosineSimilarityLoss,
+    DenoisingAutoEncoderLoss,
+    EmbedDistillLoss,
+    GISTEmbedLoss,
+    MatryoshkaLoss,
+    MSELoss,
+    SoftmaxLoss,
+)
 from sentence_transformers.sentence_transformer.modules import StaticEmbedding
 from sentence_transformers.util import is_training_available
 
@@ -37,6 +50,229 @@ if not is_training_available():
     )
 
 from datasets import Dataset, DatasetDict
+
+
+class LossWithoutModel(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.encoder = model
+
+
+@pytest.mark.parametrize("cross_encoder", [False, True])
+@pytest.mark.parametrize("as_dict", [False, True])
+@pytest.mark.parametrize("as_factory", [False, True])
+def test_loss_requires_model(request, tmp_path, cross_encoder, as_dict, as_factory):
+    model = request.getfixturevalue("reranker_bert_tiny_model" if cross_encoder else "stsb_bert_tiny_model")
+    trainer_class = CrossEncoderTrainer if cross_encoder else SentenceTransformerTrainer
+    args_class = CrossEncoderTrainingArguments if cross_encoder else SentenceTransformerTrainingArguments
+    loss = LossWithoutModel if as_factory else LossWithoutModel(model)
+    with pytest.raises(ValueError, match=r"LossWithoutModel must store the model as `self.model`"):
+        trainer_class(
+            model=model,
+            args=args_class(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+            loss={"data": loss} if as_dict else loss,
+        )
+
+
+@pytest.mark.parametrize(
+    "loss_class, alias",
+    [
+        (ContrastiveTensionLoss, "model2"),
+        (ContrastiveTensionLossInBatchNegatives, "model2"),
+        (DenoisingAutoEncoderLoss, "encoder"),
+    ],
+)
+def test_loss_model_alias_uses_wrapped_model(stsb_bert_tiny_model, tmp_path, loss_class, alias):
+    model = stsb_bert_tiny_model.to("cpu")
+    loss = loss_class(model)
+    assert loss.model is getattr(loss, alias) is model
+    assert alias not in dict(loss.named_children())
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+        loss=loss,
+    )
+    trainer.model_wrapped = torch.nn.Sequential(model)
+    samples = [{"source": "hello world", "label": 1.0}, {"source": "hello", "label": 0.0}]
+    if loss_class is not ContrastiveTensionLossInBatchNegatives:
+        for sample in samples:
+            sample["target"] = "hello world"
+    calls = []
+    with trainer.model_wrapped.register_forward_hook(lambda *args: calls.append(True)):
+        value = trainer.compute_loss(trainer.model_wrapped, trainer.data_collator(samples))
+        value.backward()
+    assert torch.isfinite(value)
+    assert calls == [True]
+    assert loss.model is getattr(loss, alias) is trainer.model_wrapped
+    assert any(parameter.grad is not None for parameter in model.parameters())
+
+
+@pytest.mark.parametrize(
+    "loss_class",
+    [
+        ContrastiveTensionLoss,
+        ContrastiveTensionLossInBatchNegatives,
+        DenoisingAutoEncoderLoss,
+        EmbedDistillLoss,
+        SoftmaxLoss,
+    ],
+)
+def test_ddp_rejects_trainable_loss_parameters(stsb_bert_tiny_model, tmp_path, loss_class):
+    model = stsb_bert_tiny_model.to("cpu")
+    kwargs = {}
+    if loss_class is EmbedDistillLoss:
+        kwargs = {"projection_dim": 64}
+    elif loss_class is SoftmaxLoss:
+        kwargs = {"embedding_dimension": model.get_embedding_dimension(), "num_labels": 2}
+    loss = loss_class(model, **kwargs)
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+        loss=loss,
+    )
+    wrapped = Mock(spec=torch.nn.parallel.DistributedDataParallel)
+    wrapped.parameters.return_value = list(model.parameters())
+    trainer.model_wrapped = wrapped
+    with pytest.raises(ValueError, match="trainable parameters outside `model` that DDP does not synchronize"):
+        trainer.compute_loss(wrapped, {})
+    assert loss.model is model
+
+    model_parameters = {id(parameter) for parameter in model.parameters()}
+    for parameter in loss.parameters():
+        if id(parameter) not in model_parameters:
+            parameter.requires_grad_(False)
+    trainer.override_model_in_loss(loss, wrapped)
+    assert loss.model is wrapped
+
+
+@pytest.mark.parametrize("loss_class", [GISTEmbedLoss, CachedGISTEmbedLoss])
+@pytest.mark.parametrize("guide_sharing", ["none", "partial", "full"])
+def test_ddp_allows_gist_guides(stsb_bert_tiny_model, tmp_path, loss_class, guide_sharing):
+    model = stsb_bert_tiny_model.to("cpu")
+    guide = model if guide_sharing == "full" else deepcopy(model)
+    if guide_sharing == "partial":
+        guide.transformers_model.set_input_embeddings(model.transformers_model.get_input_embeddings())
+    guided_loss = loss_class(model, guide)
+    model_parameters = {id(parameter) for parameter in model.parameters()}
+    assert all(parameter.requires_grad for parameter in model.parameters())
+    assert all(parameter.requires_grad == (id(parameter) in model_parameters) for parameter in guide.parameters())
+    loss = MatryoshkaLoss(model, guided_loss, [64])
+    trainer = SentenceTransformerTrainer(
+        model=model,
+        args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+        loss=loss,
+    )
+    samples = [{"anchor": "hello", "positive": "world"}, {"anchor": "world", "positive": "hello"}]
+    trainer.compute_loss(model, trainer.data_collator(samples)).backward()
+    assert any(parameter.grad is not None for parameter in model.parameters())
+    assert all(parameter.grad is None for parameter in guide.parameters() if id(parameter) not in model_parameters)
+
+    wrapped = Mock(spec=torch.nn.parallel.DistributedDataParallel)
+    wrapped.parameters.return_value = list(model.parameters())
+    trainer.override_model_in_loss(loss, wrapped)
+    assert loss.model is guided_loss.model is wrapped
+
+
+@pytest.mark.parametrize("as_dict", [False, True])
+@pytest.mark.parametrize(
+    "device",
+    ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA required"))],
+)
+@pytest.mark.parametrize(
+    "loss_class", [ContrastiveTensionLoss, ContrastiveTensionLossInBatchNegatives, DenoisingAutoEncoderLoss]
+)
+def test_model_init_recreates_loss(stsb_bert_tiny_model, tmp_path, loss_class, as_dict, device):
+    from datasets import Dataset
+
+    model = stsb_bert_tiny_model.to("cpu")
+    created_losses = []
+
+    def loss_init(model):
+        loss = loss_class(model)
+        created_losses.append(loss)
+        return loss
+
+    data = {"source": ["hello world", "hello"]}
+    if loss_class is not ContrastiveTensionLossInBatchNegatives:
+        data["target"] = ["hello world", "hello world"]
+    dataset = Dataset.from_dict(data)
+    loss = {"data": loss_init, "other": CosineSimilarityLoss} if as_dict else loss_init
+    trainer = SentenceTransformerTrainer(
+        model_init=lambda: deepcopy(model),
+        loss=loss,
+        train_dataset={"data": dataset} if as_dict else dataset,
+        args=SentenceTransformerTrainingArguments(
+            output_dir=str(tmp_path),
+            use_cpu=device == "cpu",
+            report_to=[],
+            max_steps=1,
+            per_device_train_batch_size=2,
+            save_strategy="no",
+            logging_strategy="no",
+            disable_tqdm=True,
+        ),
+    )
+
+    for initialization in range(3):
+        if initialization:
+            trainer.train()
+        current_loss = trainer.loss["data"] if as_dict else trainer.loss
+        assert len(created_losses) == initialization + 1
+        assert current_loss is created_losses[-1]
+        assert current_loss.model is trainer.model
+        assert all(parameter.device == trainer.args.device for parameter in current_loss.parameters())
+        if as_dict:
+            assert loss["data"] is loss_init
+            assert loss["other"] is CosineSimilarityLoss
+            assert trainer.loss["other"].model is trainer.model
+
+        if loss_class is DenoisingAutoEncoderLoss:
+            encoder = trainer.model.transformers_model
+            decoder = current_loss.decoder
+            encoder_params = dict(encoder.named_parameters())
+            decoder_params = dict(decoder.base_model.named_parameters())
+            common = encoder_params.keys() & decoder_params.keys()
+            assert common
+            assert all(encoder_params[name] is decoder_params[name] for name in common)
+            assert encoder.get_input_embeddings().weight is decoder.get_output_embeddings().weight
+
+        if initialization:
+            previous_params = {id(parameter) for parameter in created_losses[-2].parameters()}
+            current_params = {id(parameter) for parameter in current_loss.parameters()}
+            assert previous_params.isdisjoint(current_params)
+            optimizer_params = {
+                id(parameter) for group in trainer.optimizer.param_groups for parameter in group["params"]
+            }
+            assert optimizer_params == current_params
+
+
+@pytest.mark.parametrize("as_dict", [False, True])
+@pytest.mark.parametrize("loss_class", [CosineSimilarityLoss, ContrastiveTensionLoss, DenoisingAutoEncoderLoss])
+def test_model_init_rejects_loss_instances(stsb_bert_tiny_model, tmp_path, as_dict, loss_class):
+    model = stsb_bert_tiny_model.to("cpu")
+    loss = loss_class(model)
+    with pytest.raises(ValueError, match=r"model_init.*loss class.*initialized loss instance"):
+        SentenceTransformerTrainer(
+            model_init=lambda: deepcopy(model),
+            loss={"factory": CosineSimilarityLoss, "instance": loss} if as_dict else loss,
+            args=SentenceTransformerTrainingArguments(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+        )
+
+
+@pytest.mark.parametrize("cross_encoder", [False, True])
+def test_model_init_with_default_loss(request, tmp_path, cross_encoder):
+    model = request.getfixturevalue("reranker_bert_tiny_model" if cross_encoder else "stsb_bert_tiny_model")
+    trainer_class = CrossEncoderTrainer if cross_encoder else SentenceTransformerTrainer
+    args_class = CrossEncoderTrainingArguments if cross_encoder else SentenceTransformerTrainingArguments
+    trainer = trainer_class(
+        model_init=lambda: deepcopy(model),
+        args=args_class(output_dir=str(tmp_path), use_cpu=True, report_to=[]),
+    )
+    assert trainer.loss.model is trainer.model
+    for _ in range(2):
+        new_model = trainer.call_model_init()
+        assert new_model is not trainer.model
+        assert trainer.loss.model is new_model
 
 
 @contextlib.contextmanager
