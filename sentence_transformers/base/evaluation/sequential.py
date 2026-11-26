@@ -28,12 +28,27 @@ class SequentialEvaluator(BaseEvaluator):
             evaluator2 = InformationRetrievalEvaluator(...)
             evaluator3 = MSEEvaluator(...)
             seq_evaluator = SequentialEvaluator([evaluator1, evaluator2, evaluator3])
+
+    Nano evaluators (e.g. :class:`~sentence_transformers.sentence_transformer.evaluation.NanoRetrievalEvaluator`)
+    prefix all of their metrics with their name, so two of them with the same name would overwrite each other's
+    metrics. This raises a ``ValueError``; give them distinct ``name`` values instead.
     """
 
     def __init__(self, evaluators: Iterable[BaseEvaluator], main_score_function=lambda scores: scores[-1]):
         super().__init__()
         self.evaluators = list(evaluators)
         self.main_score_function = main_score_function
+        self._check_unique_nano_names()
+
+    def _check_unique_nano_names(self) -> None:
+        seen: dict[str, BaseEvaluator] = {}
+        for evaluator in self.evaluators:
+            # Nano evaluators are recognized by their ``dataset_id``. Other evaluators may share a name on purpose.
+            if getattr(evaluator, "dataset_id", None) is None or not getattr(evaluator, "name", None):
+                continue
+            if (other := seen.get(evaluator.name)) is not None:
+                raise ValueError(_duplicate_name_message(other, evaluator))
+            seen[evaluator.name] = evaluator
 
     def __call__(
         self, model: BaseModel, output_path: str | None = None, epoch: int = -1, steps: int = -1
@@ -62,3 +77,25 @@ class SequentialEvaluator(BaseEvaluator):
         results = {key: value for evaluation in evaluations for key, value in evaluation.items()}
         results["sequential_score"] = main_score
         return results
+
+
+def _duplicate_name_message(first: BaseEvaluator, second: BaseEvaluator) -> str:
+    name = getattr(first, "dataset_name", first.name)
+    columns = [getattr(evaluator, "corpus_column", None) or "text" for evaluator in (first, second)]
+    suffixes = columns if columns[0] != columns[1] else ["1", "2"]
+    examples = "\n".join(
+        _example_call(evaluator, f"{name}-{suffix}") for evaluator, suffix in zip((first, second), suffixes)
+    )
+    return (
+        f"Two evaluators in SequentialEvaluator share the name '{name}', so their metrics would overwrite each "
+        f"other. Give each of them a distinct `name`, e.g.:\n\n{examples}"
+    )
+
+
+def _example_call(evaluator: BaseEvaluator, name: str) -> str:
+    # NanoBEIR evaluators take short dataset names rather than a dataset ID as their first argument
+    args = ["..."] if hasattr(evaluator, "dataset_names") else [f'"{evaluator.dataset_id}"']
+    args.append(f'name="{name}"')
+    if (corpus_column := getattr(evaluator, "corpus_column", None)) is not None:
+        args.append(f'corpus_column="{corpus_column}"')
+    return f"    {type(evaluator).__name__}({', '.join(args)})"
