@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import partial
+
 import pytest
 import torch
 
@@ -82,3 +84,8 @@ def test_single_input_does_not_poison_a_combined_loss(loss: GlobalOrthogonalRegu
 
     assert torch.isfinite(total)
     assert total.item() == pytest.approx(task_loss.item())
+
+
+def test_gor_get_config_dict_with_partial_similarity_fct(dummy_model) -> None:
+    loss = GlobalOrthogonalRegularizationLoss(dummy_model, similarity_fct=partial(cos_sim))
+    assert loss.get_config_dict()["similarity_fct"] == "cos_sim"

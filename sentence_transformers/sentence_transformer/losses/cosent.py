@@ -129,7 +129,7 @@ class CoSENTLoss(nn.Module):
         return loss
 
     def get_config_dict(self) -> dict[str, Any]:
-        return {"scale": self.scale, "similarity_fct": self.similarity_fct.__name__}
+        return {"scale": self.scale, "similarity_fct": util.similarity_fct_name(self.similarity_fct)}
 
     @property
     def citation(self) -> str:
