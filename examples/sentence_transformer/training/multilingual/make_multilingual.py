@@ -144,7 +144,7 @@ column_names = list(train_dataset_dict.values())[0].column_names
 train_dataset_dict = train_dataset_dict.map(
     prepare_dataset, batched=True, batch_size=30000, remove_columns=column_names
 )
-logging.info("Prepared datasets for training:", train_dataset_dict)
+logging.info("Prepared datasets for training: %s", train_dataset_dict)
 
 # 3. Define our training loss
 # MSELoss (https://sbert.net/docs/package_reference/sentence_transformer/losses.html#mseloss) needs one text columns and one
