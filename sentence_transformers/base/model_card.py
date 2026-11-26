@@ -20,7 +20,6 @@ import transformers
 from huggingface_hub import CardData, ModelCard
 from huggingface_hub import dataset_info as get_dataset_info
 from huggingface_hub import model_info as get_model_info
-from huggingface_hub.repocard_data import EvalResult, eval_results_to_model_index
 from huggingface_hub.utils import yaml_dump
 from torch import nn
 from tqdm.autonotebook import tqdm
@@ -258,10 +257,8 @@ YAML_FIELDS = [
     "library_name",
     "tags",
     "datasets",
-    "metrics",
     "pipeline_tag",
     "widget",
-    "model-index",
     "co2_eq_emissions",
     "base_model",
 ]
@@ -1419,18 +1416,8 @@ class BaseModelCardData(CardData):
                     break
 
     def format_eval_metrics(self) -> dict[str, Any]:
-        """Format the evaluation metrics for the model card.
-
-        The following keys will be returned:
-        - eval_metrics: A list of dictionaries containing the class name, description, dataset name, and a markdown table
-          This is used to display the evaluation metrics in the model card.
-        - metrics: A list of all metric keys. This is used in the model card metadata.
-        - model-index: A list of dictionaries containing the task name, task type, dataset type, dataset name, metric name,
-          metric type, and metric value. This is used to display the evaluation metrics in the model card metadata.
-        """
+        """Format evaluator details and Markdown tables for the model card body under the ``eval_metrics`` key."""
         eval_metrics = []
-        all_metrics = {}
-        eval_results = []
         for evaluator, metrics in self.eval_results_dict.items():
             name = getattr(evaluator, "name", None)
             primary_metric = getattr(evaluator, "primary_metric", None)
@@ -1481,34 +1468,6 @@ class BaseModelCardData(CardData):
                 }
             )
 
-            def try_to_float(metric_value):
-                try:
-                    return float(metric_value)
-                except Exception:
-                    pass
-
-                if isinstance(metric_value, str) and " " in metric_value:
-                    return try_to_float(metric_value.split()[0])
-
-                return None
-
-            eval_results.extend(
-                [
-                    EvalResult(
-                        task_name=description,
-                        task_type=description.lower().replace(" ", "-"),
-                        dataset_type=dataset_name or "unknown",
-                        dataset_name=dataset_name.replace("_", " ").replace("-", " ") if dataset_name else "Unknown",
-                        metric_name=metric_key.replace("_", " ").title(),
-                        metric_type=metric_key,
-                        metric_value=metric_value_float,
-                    )
-                    for metric_key, metric_value in metrics.items()
-                    if (metric_value_float := try_to_float(metric_value)) is not None
-                ]
-            )
-            all_metrics.update(metrics)
-
         # Group eval_metrics together by class name and table_lines metrics
         grouped_eval_metrics = []
         for eval_metric in eval_metrics:
@@ -1541,11 +1500,7 @@ class BaseModelCardData(CardData):
                 "-:|", "--|"
             )
 
-        return {
-            "eval_metrics": grouped_eval_metrics,
-            "metrics": list(all_metrics.keys()),
-            "model-index": eval_results_to_model_index(self.model_name, eval_results),
-        }
+        return {"eval_metrics": grouped_eval_metrics}
 
     def format_training_logs(self):
         # Get the keys from all evaluation lines
