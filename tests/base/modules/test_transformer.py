@@ -15,7 +15,16 @@ import torch
 from packaging.version import Version
 from packaging.version import parse as parse_version
 from tokenizers.normalizers import NFC, Lowercase, Sequence
-from transformers import AutoConfig, AutoModel, AutoProcessor, MimiConfig, PretrainedConfig, Qwen3Config, Qwen3VLConfig
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoModelForMaskedLM,
+    AutoProcessor,
+    MimiConfig,
+    PretrainedConfig,
+    Qwen3Config,
+    Qwen3VLConfig,
+)
 from transformers import __version__ as transformers_version
 from transformers.utils import is_peft_available, is_torchvision_available, is_vision_available
 
@@ -1133,6 +1142,16 @@ class TestGetEmbeddingDimension:
         with torch.no_grad():
             output = model(input_ids=torch.tensor([[2, 3, 4]]))
         assert Transformer.get_embedding_dimension(module) == output.last_hidden_state.shape[-1]
+
+    def test_fill_mask_output_dimension(self):
+        config = AutoConfig.for_model(
+            "bert", vocab_size=99, hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32
+        )
+        model = AutoModelForMaskedLM.from_config(config).eval()
+        module = SimpleNamespace(model=model, transformer_task="fill-mask", module_output_name="token_embeddings")
+        with torch.no_grad():
+            output = model(input_ids=torch.tensor([[2, 3, 4]]))
+        assert Transformer.get_embedding_dimension(module) == output.logits.shape[-1] == 99
 
     def test_standard_hidden_size(self, bert_tiny_transformer):
         dim = bert_tiny_transformer.get_embedding_dimension()

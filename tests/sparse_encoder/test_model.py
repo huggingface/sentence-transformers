@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from sentence_transformers.sentence_transformer.modules import Pooling
+from sentence_transformers.sparse_encoder.losses import SparseMatryoshkaLoss, SparseMultipleNegativesRankingLoss
 from sentence_transformers.sparse_encoder.model import SparseEncoder
 from sentence_transformers.sparse_encoder.modules import Router, SparseAutoEncoder, SpladePooling, Transformer
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -453,6 +454,17 @@ def test_splade_pooling_chunk_size(splade_bert_tiny_model: SparseEncoder):
     assert model.splade_pooling_chunk_size == 13
     assert isinstance(model[1], SpladePooling)
     assert model[1].chunk_size == 13
+
+
+def test_get_embedding_dimension_before_first_forward(splade_bert_tiny_model: SparseEncoder) -> None:
+    model = SparseEncoder(modules=[splade_bert_tiny_model[0], SpladePooling()])
+    assert model[1].embedding_dimension is None
+    embedding_dimension = model.get_embedding_dimension()
+
+    SparseMatryoshkaLoss(model, SparseMultipleNegativesRankingLoss(model), max_active_dims=[None, 256, 128, 64])
+
+    embeddings = model.encode(["The weather is lovely today."])
+    assert embedding_dimension == model.get_embedding_dimension() == embeddings.shape[-1] == 30522
 
 
 @pytest.mark.parametrize("inference_device", ["cpu", "cuda"], indirect=True)
