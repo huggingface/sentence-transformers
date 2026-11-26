@@ -96,7 +96,6 @@ class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
         }
         self.token_pooling = token_pooling
         super().__init__(dataset_id=dataset_id, splits=splits, name=name, **kwargs)
-        self.csv_file = f"{self.dataset_name}_evaluation_{self.name.removeprefix(self.dataset_name + '_')}_results.csv"
 
     def _get_aggregate_name(self) -> str:
         name = super()._get_aggregate_name()

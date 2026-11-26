@@ -15,7 +15,7 @@ def test_nanobeir_compatibility(nano_datasets, splade_bert_tiny_model, max_activ
     assert {args.kwargs["split"] for args in nano_datasets.load.call_args_list} == {"NanoMSMARCO", "NanoNQ"}
     suffix = f"_{max_active_dims}" if max_active_dims is not None else ""
     assert evaluator.name == f"NanoBEIR_mean{suffix}"
-    assert evaluator.csv_file == "NanoBEIR_evaluation_mean_results.csv"
+    assert evaluator.csv_file == f"NanoBEIR_evaluation_mean{suffix}_results.csv"
     assert [part.name for part in evaluator.evaluators] == [f"NanoMSMARCO{suffix}", f"NanoNQ{suffix}"]
     config = {
         "dataset_names": ["msmarco", "NQ"],
