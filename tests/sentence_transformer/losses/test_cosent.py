@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import math
+from functools import partial
 
 import pytest
 import torch
 
 from sentence_transformers.sentence_transformer.losses import AnglELoss, CoSENTLoss
+from sentence_transformers.util import pairwise_cos_sim
 
 
 @pytest.fixture
@@ -38,13 +40,8 @@ def test_cosent_penalises_the_lower_labelled_pair(dummy_model, low_label_score, 
 
 
 def test_cosent_get_config_dict_with_partial_similarity_fct(dummy_model) -> None:
-    """A similarity function without __name__ (e.g. functools.partial) used to crash get_config_dict."""
-    from functools import partial
-
-    from sentence_transformers import util
-
-    loss = CoSENTLoss(dummy_model, similarity_fct=partial(util.pairwise_cos_sim))
-    assert "pairwise_cos_sim" in loss.get_config_dict()["similarity_fct"]
+    loss = CoSENTLoss(dummy_model, similarity_fct=partial(pairwise_cos_sim))
+    assert loss.get_config_dict()["similarity_fct"] == "pairwise_cos_sim"
 
 
 @pytest.mark.parametrize(("labels", "score_difference"), [([0.0, 1.0], -1.0), ([1.0, 0.0], 1.0)])

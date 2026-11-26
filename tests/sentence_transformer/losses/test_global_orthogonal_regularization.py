@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import partial
+
 import pytest
 import torch
 
@@ -85,10 +87,5 @@ def test_single_input_does_not_poison_a_combined_loss(loss: GlobalOrthogonalRegu
 
 
 def test_gor_get_config_dict_with_partial_similarity_fct(dummy_model) -> None:
-    """A similarity function without __name__ (e.g. functools.partial) used to crash get_config_dict."""
-    from functools import partial
-
-    from sentence_transformers import util
-
-    loss = GlobalOrthogonalRegularizationLoss(dummy_model, similarity_fct=partial(util.cos_sim))
-    assert "cos_sim" in loss.get_config_dict()["similarity_fct"]
+    loss = GlobalOrthogonalRegularizationLoss(dummy_model, similarity_fct=partial(cos_sim))
+    assert loss.get_config_dict()["similarity_fct"] == "cos_sim"
