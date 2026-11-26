@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from sentence_transformers.sentence_transformer.modules import Pooling
+from sentence_transformers.sparse_encoder.losses import SparseMatryoshkaLoss, SparseMultipleNegativesRankingLoss
 from sentence_transformers.sparse_encoder.model import SparseEncoder
 from sentence_transformers.sparse_encoder.modules import Router, SparseAutoEncoder, SpladePooling, Transformer
 from sentence_transformers.util.similarity import SimilarityFunction
@@ -456,14 +457,14 @@ def test_splade_pooling_chunk_size(splade_bert_tiny_model: SparseEncoder):
 
 
 def test_get_embedding_dimension_before_first_forward(splade_bert_tiny_model: SparseEncoder) -> None:
-    # SparseEncoder("<MLM checkpoint>") builds a SpladePooling without embedding_dimension, which is only set on the
-    # first forward pass. Until then, the dimension must come from the vocabulary size, not the hidden size.
-    model = SparseEncoder(modules=[splade_bert_tiny_model[0], SpladePooling(pooling_strategy="max")])
+    model = SparseEncoder(modules=[splade_bert_tiny_model[0], SpladePooling()])
     assert model[1].embedding_dimension is None
     embedding_dimension = model.get_embedding_dimension()
 
+    SparseMatryoshkaLoss(model, SparseMultipleNegativesRankingLoss(model), max_active_dims=[None, 256, 128, 64])
+
     embeddings = model.encode(["The weather is lovely today."])
-    assert embedding_dimension == embeddings.shape[-1] == 30522
+    assert embedding_dimension == model.get_embedding_dimension() == embeddings.shape[-1] == 30522
 
 
 def test_intersection(splade_bert_tiny_model: SparseEncoder):

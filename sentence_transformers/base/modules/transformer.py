@@ -1728,8 +1728,7 @@ class Transformer(InputModule):
         """Get the output embedding dimension from the transformer model.
 
         Returns:
-            int: The hidden dimension size of the model's embeddings, or the vocabulary size for the
-            ``"fill-mask"`` task, whose outputs have one logit per vocabulary token.
+            int: Output embedding dimension. For ``"fill-mask"``, this is the vocabulary size.
 
         Raises:
             ValueError: If the embedding dimension cannot be determined from the model config.

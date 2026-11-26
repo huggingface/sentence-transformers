@@ -1144,7 +1144,6 @@ class TestGetEmbeddingDimension:
         assert Transformer.get_embedding_dimension(module) == output.last_hidden_state.shape[-1]
 
     def test_fill_mask_output_dimension(self):
-        """The fill-mask output (e.g. the input of SpladePooling) has one logit per vocabulary token."""
         config = AutoConfig.for_model(
             "bert", vocab_size=99, hidden_size=16, num_hidden_layers=1, num_attention_heads=2, intermediate_size=32
         )
