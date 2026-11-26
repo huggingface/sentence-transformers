@@ -660,9 +660,9 @@ def test_trainer_learning_rate_mapping_for_inference_free_splade_query_route(
             report_to="none",
         ),
         train_dataset=train_dataset,
-        loss=losses.SpladeLoss(
+        loss=SpladeLoss(
             model,
-            losses.SparseMultipleNegativesRankingLoss(model),
+            SparseMultipleNegativesRankingLoss(model),
             query_regularizer_weight=0,
             document_regularizer_weight=3e-4,
         ),
