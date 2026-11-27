@@ -56,7 +56,7 @@ def semantic_search_qdrant(
             If provided, uses this existing index for search
         top_k: Number of top results to retrieve
         output_index: Whether to return the Qdrant client and collection name
-        query_batch_size: Maximum number of queries per Qdrant request.
+        query_batch_size: Maximum number of queries per Qdrant request. Defaults to 32.
         **kwargs: Additional keyword arguments passed to ``QdrantClient`` when creating a new client.
 
     Returns:
