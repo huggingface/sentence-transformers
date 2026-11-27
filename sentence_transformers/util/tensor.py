@@ -250,7 +250,7 @@ def repad_flattened_features(features: dict[str, Any]) -> dict[str, Any]:
     When :class:`Transformer` runs with FA2 unpadding, ``DataCollatorWithFlattening`` flattens the
     batch into ``token_embeddings: (1, sum_lens, D)`` / ``input_ids: (1, sum_lens)``, drops
     ``attention_mask``, and writes ``cu_seq_lens_q`` to mark sequence boundaries. This function
-    reverses that: pad ``token_embeddings`` and ``input_ids`` back to ``(B, T_max, ...)``, rebuild
+    reverses that: pad ``token_embeddings``, ``input_ids``, and any hidden layers back to ``(B, T_max, ...)``, rebuild
     ``attention_mask`` from the cumulative lengths, and drop the FA2-specific keys. Caller is
     responsible for gating on ``cu_seq_lens_q in features``.
 
@@ -269,6 +269,13 @@ def repad_flattened_features(features: dict[str, Any]) -> dict[str, Any]:
     features["input_ids"] = torch.nn.utils.rnn.pad_sequence(
         [flat_ids[s:e] for s, e in zip(cu[:-1], cu[1:])], batch_first=True, padding_value=0
     )
+    if "all_layer_embeddings" in features:
+        features["all_layer_embeddings"] = tuple(
+            torch.nn.utils.rnn.pad_sequence(
+                [layer[0, s:e] for s, e in zip(cu[:-1], cu[1:])], batch_first=True, padding_value=0.0
+            )
+            for layer in features["all_layer_embeddings"]
+        )
     lengths = torch.tensor([e - s for s, e in zip(cu[:-1], cu[1:])], device=flat_emb.device)
     T_max = features["input_ids"].shape[1]
     features["attention_mask"] = torch.arange(T_max, device=flat_emb.device).unsqueeze(0) < lengths.unsqueeze(1)
