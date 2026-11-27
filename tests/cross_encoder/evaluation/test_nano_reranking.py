@@ -4,6 +4,7 @@ import csv
 
 import pytest
 
+from sentence_transformers.base.evaluation import SequentialEvaluator
 from sentence_transformers.cross_encoder.evaluation import (
     CrossEncoderNanoBEIREvaluator,
     CrossEncoderNanoRerankingEvaluator,
@@ -14,6 +15,7 @@ def test_nano_reranking_aggregates_tasks_with_underscores(nano_datasets, reranke
     evaluator = CrossEncoderNanoRerankingEvaluator(
         nano_datasets.dataset_id, name="my_suite", at_k=1, aggregate_key="macro_mean"
     )
+    assert evaluator.csv_file == "my_suite_evaluation_R100_macro_mean_results_@1.csv"
     nano_datasets.discover.assert_called_once_with(nano_datasets.dataset_id, "qrels")
     results = evaluator(reranker_bert_tiny_model, output_path=str(tmp_path), epoch=0, steps=1)
     scores = [results[f"my_suite_{split}_R100_ndcg@1"] for split in nano_datasets.splits]
@@ -39,6 +41,32 @@ def test_nano_reranking_aggregates_tasks_with_underscores(nano_datasets, reranke
         assert evaluator(reranker_bert_tiny_model, output_path=tmp_path) == pytest.approx(results)
     assert "Skipping CSV row" in caplog.text
     assert csv_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("evaluator_class", [CrossEncoderNanoRerankingEvaluator, CrossEncoderNanoBEIREvaluator])
+@pytest.mark.parametrize("parameter", ["rerank_k", "at_k"])
+def test_nano_reranking_evaluators_write_separate_csv_files(
+    evaluator_class, parameter, nano_datasets, reranker_bert_tiny_model, tmp_path
+):
+    kwargs = (
+        {"dataset_names": ["msmarco"]}
+        if evaluator_class is CrossEncoderNanoBEIREvaluator
+        else {"dataset_id": nano_datasets.dataset_id, "splits": ["first_task"]}
+    )
+    evaluators = [evaluator_class(**kwargs, always_rerank_positives=False, **{parameter: value}) for value in (1, 2)]
+    results = SequentialEvaluator(evaluators)(reranker_bert_tiny_model, output_path=str(tmp_path), epoch=0, steps=1)
+    assert len({evaluator.csv_file for evaluator in evaluators}) == len(evaluators)
+    for evaluator in evaluators:
+        with (tmp_path / evaluator.csv_file).open(newline="", encoding="utf-8") as handle:
+            headers, *rows = csv.reader(handle)
+        assert headers == evaluator.csv_headers
+        assert [row[:2] for row in rows] == [["0", "1"]]
+        assert [float(value) for value in rows[0][2:]] == pytest.approx(
+            [
+                results[f"{evaluator.name}_{metric}"]
+                for metric in ("map", f"mrr@{evaluator.at_k}", f"ndcg@{evaluator.at_k}")
+            ]
+        )
 
 
 def test_nano_reranking_candidate_subset_and_cutoff(nano_datasets):
@@ -82,7 +110,7 @@ def test_nanobeir_compatibility(nano_datasets, reranker_bert_tiny_model, tmp_pat
     nano_datasets.discover.assert_not_called()
     assert {args.kwargs["split"] for args in nano_datasets.load.call_args_list} == {"NanoMSMARCO", "NanoNQ"}
     assert evaluator.name == "NanoBEIR_R2_mean"
-    assert evaluator.csv_file == "NanoBEIR_evaluation_mean_results.csv"
+    assert evaluator.csv_file == "NanoBEIR_evaluation_R2_mean_results_@1.csv"
     assert [part.name for part in evaluator.evaluators] == ["NanoMSMARCO_R2", "NanoNQ_R2"]
     assert evaluator.get_config_dict() == {
         "dataset_names": ["msmarco", "NQ"],
@@ -102,6 +130,7 @@ def test_nanobeir_compatibility(nano_datasets, reranker_bert_tiny_model, tmp_pat
 
 def test_nanobeir_defaults_and_invalid_names(nano_datasets):
     evaluator = CrossEncoderNanoBEIREvaluator()
+    assert evaluator.csv_file == "NanoBEIR_evaluation_R100_mean_results_@10.csv"
     assert len(evaluator.evaluators) == 11
     assert "arguana" not in evaluator.dataset_names
     assert "touche2020" not in evaluator.dataset_names

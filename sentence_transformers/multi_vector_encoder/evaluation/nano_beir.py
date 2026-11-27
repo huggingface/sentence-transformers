@@ -43,8 +43,7 @@ class MultiVectorNanoBEIREvaluator(NanoBEIREvaluator, MultiVectorNanoRetrievalEv
         map_at_k (List[int]): k-values for MAP. Defaults to ``[100]``.
         show_progress_bar (bool): Show a progress bar during evaluation. Defaults to False.
         batch_size (int): Per-input batch size used while encoding. Defaults to 32.
-        write_csv (bool): Append per-call metric values to a CSV file (one row per evaluation call).
-            Defaults to True.
+        write_csv (bool): Append per-call metric values to CSV files. Defaults to True.
         truncate_dim (int, optional): Truncate and L2-normalize each token embedding before scoring.
             An explicit dimension is appended to evaluator names. Defaults to None (use the model's
             default dimension).

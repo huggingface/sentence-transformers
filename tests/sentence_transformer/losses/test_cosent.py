@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import math
 import re
+from functools import partial
 
 import pytest
 import torch
 
 from sentence_transformers.sentence_transformer.losses import AnglELoss, CoSENTLoss
 from sentence_transformers.sparse_encoder.losses import SparseAnglELoss, SparseCoSENTLoss
+from sentence_transformers.util import pairwise_cos_sim
 
 
 @pytest.fixture
@@ -37,6 +39,11 @@ def test_cosent_penalises_the_lower_labelled_pair(dummy_model, low_label_score, 
     value = loss.compute_loss_from_embeddings(_pairs([low_label_score, high_label_score]), labels)
 
     assert value.item() == pytest.approx(math.log(1 + math.exp(low_label_score - high_label_score)), abs=1e-5)
+
+
+def test_cosent_get_config_dict_with_partial_similarity_fct(dummy_model) -> None:
+    loss = CoSENTLoss(dummy_model, similarity_fct=partial(pairwise_cos_sim))
+    assert loss.get_config_dict()["similarity_fct"] == "pairwise_cos_sim"
 
 
 @pytest.mark.parametrize(("labels", "score_difference"), [([0.0, 1.0], -1.0), ([1.0, 0.0], 1.0)])

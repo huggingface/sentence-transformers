@@ -8,7 +8,7 @@ from torch import Tensor, nn
 
 from sentence_transformers.base.losses.merged_forward import embed_columns
 from sentence_transformers.sentence_transformer import SentenceTransformer
-from sentence_transformers.util import cos_sim
+from sentence_transformers.util import cos_sim, similarity_fct_name
 
 
 class GlobalOrthogonalRegularizationLoss(nn.Module):
@@ -200,7 +200,7 @@ class GlobalOrthogonalRegularizationLoss(nn.Module):
 
     def get_config_dict(self) -> dict[str, Any]:
         return {
-            "similarity_fct": self.similarity_fct.__name__,
+            "similarity_fct": similarity_fct_name(self.similarity_fct),
             "mean_weight": self.mean_weight,
             "second_moment_weight": self.second_moment_weight,
             "aggregation": self.aggregation,

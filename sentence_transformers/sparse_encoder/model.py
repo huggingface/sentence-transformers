@@ -1333,9 +1333,8 @@ class SparseEncoder(BaseModel):
         """
         Compute the intersection of two sparse embeddings via element-wise multiplication.
 
-        For each dimension, the result retains the minimum contribution from both embeddings, keeping only
-        dimensions where both inputs are positive (i.e., shared active dimensions). This is useful for
-        token-level matching and interpretability when combined with :meth:`decode`.
+        Only dimensions with a positive element-wise product are retained. This is useful for token-level matching
+        and interpretability when combined with :meth:`decode`.
 
         Args:
             embeddings_1 (torch.Tensor): First embedding tensor of shape ``(vocab_size,)``.
@@ -1372,8 +1371,11 @@ class SparseEncoder(BaseModel):
 
         if embeddings_2.ndim == 1:
             intersection = embeddings_1 * embeddings_2
+        elif embeddings_2.ndim == 2 and embeddings_2.sparse_dim() == 2 and embeddings_1.sparse_dim() == 1:
+            # Densify only the query to broadcast across the sparse document batch.
+            intersection = embeddings_1.to_dense() * embeddings_2
         elif embeddings_2.ndim == 2:
-            # Element-wise multiplication per row. Python loop is required as sparse broadcasting is limited
+            # Hybrid COO tensors store a dense block per index.
             intersection = torch.stack([embeddings_1 * embedding for embedding in embeddings_2])
         else:
             raise ValueError(f"Expected 1D or 2D tensor for embeddings_2, but got {embeddings_2.shape} shape.")
@@ -1386,6 +1388,7 @@ class SparseEncoder(BaseModel):
             intersection.values()[active_dims],
             size=intersection.size(),
             device=intersection.device,
+            is_coalesced=True,
         )
 
         return intersection
@@ -1425,7 +1428,7 @@ class SparseEncoder(BaseModel):
         if not embeddings.is_sparse:
             embeddings = embeddings.to_sparse()
 
-        embeddings = embeddings.coalesce()
+        embeddings = embeddings.coalesce().cpu()
         indices = embeddings.indices()
         values = embeddings.values()
 
@@ -1437,6 +1440,7 @@ class SparseEncoder(BaseModel):
         sample_counts = torch.bincount(sample_indices, minlength=embeddings.size(0)).tolist()
 
         results = []
+        tokenizer = self.tokenizer
         start_idx = 0
         for count in sample_counts:
             if count == 0:
@@ -1446,17 +1450,13 @@ class SparseEncoder(BaseModel):
             sample_values = values[start_idx : start_idx + count]
             sample_tokens = token_indices[start_idx : start_idx + count]
 
-            effective_k = min(top_k, count) if top_k is not None else count
-            if effective_k < count:
-                top_values, top_idx = torch.topk(sample_values, effective_k)
-                sample_tokens = sample_tokens[top_idx]
-                sample_values = top_values
+            if top_k is not None and top_k < count:
+                sample_values, sorted_idx = torch.topk(sample_values, top_k)
             else:
                 sorted_idx = torch.argsort(sample_values, descending=True)
                 sample_values = sample_values[sorted_idx]
-                sample_tokens = sample_tokens[sorted_idx]
 
-            token_strs = self.tokenizer.convert_ids_to_tokens(sample_tokens.tolist())
+            token_strs = tokenizer.convert_ids_to_tokens(sample_tokens[sorted_idx].tolist())
             results.append(list(zip(token_strs, sample_values.tolist())))
 
             start_idx += count

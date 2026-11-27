@@ -5,8 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import torch
-
 from sentence_transformers.base.model_card import BaseModelCardCallback, BaseModelCardData
 from sentence_transformers.base.modules import Module, Router
 from sentence_transformers.sparse_encoder.modules import SparseAutoEncoder, SparseStaticEmbedding, SpladePooling
@@ -133,22 +131,6 @@ class SparseEncoderModelCardData(BaseModelCardData):
             }
         )
         return metadata
-
-    def run_usage_snippet(self) -> None:
-        super().run_usage_snippet()
-
-        if not self.generate_widget_examples:
-            return
-
-        self.usage_examples = self.usage_examples[:3]  # Limit to 3 examples for standard similarity
-
-        # Convert VideoDecoder objects to VideoDict so they can be processed
-        prepared_examples = [self._prepare_for_inference(item) for item in self.usage_examples]
-        embeddings = self.model.encode(prepared_examples, convert_to_tensor=True, show_progress_bar=False)
-        similarity = self.model.similarity(embeddings, embeddings)
-
-        with torch._tensor_str.printoptions(precision=4, sci_mode=False):
-            self.similarities = "\n".join(f"# {line}" for line in str(similarity.cpu()).splitlines())
 
     def get_default_model_name(self) -> str:
         return self.model_type

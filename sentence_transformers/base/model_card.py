@@ -20,7 +20,6 @@ import transformers
 from huggingface_hub import CardData, ModelCard
 from huggingface_hub import dataset_info as get_dataset_info
 from huggingface_hub import model_info as get_model_info
-from huggingface_hub.repocard_data import EvalResult, eval_results_to_model_index
 from huggingface_hub.utils import yaml_dump
 from torch import nn
 from tqdm.autonotebook import tqdm
@@ -258,10 +257,8 @@ YAML_FIELDS = [
     "library_name",
     "tags",
     "datasets",
-    "metrics",
     "pipeline_tag",
     "widget",
-    "model-index",
     "co2_eq_emissions",
     "base_model",
 ]
@@ -1419,18 +1416,8 @@ class BaseModelCardData(CardData):
                     break
 
     def format_eval_metrics(self) -> dict[str, Any]:
-        """Format the evaluation metrics for the model card.
-
-        The following keys will be returned:
-        - eval_metrics: A list of dictionaries containing the class name, description, dataset name, and a markdown table
-          This is used to display the evaluation metrics in the model card.
-        - metrics: A list of all metric keys. This is used in the model card metadata.
-        - model-index: A list of dictionaries containing the task name, task type, dataset type, dataset name, metric name,
-          metric type, and metric value. This is used to display the evaluation metrics in the model card metadata.
-        """
+        """Format evaluator details and Markdown tables for the model card body under the ``eval_metrics`` key."""
         eval_metrics = []
-        all_metrics = {}
-        eval_results = []
         for evaluator, metrics in self.eval_results_dict.items():
             name = getattr(evaluator, "name", None)
             primary_metric = getattr(evaluator, "primary_metric", None)
@@ -1481,34 +1468,6 @@ class BaseModelCardData(CardData):
                 }
             )
 
-            def try_to_float(metric_value):
-                try:
-                    return float(metric_value)
-                except Exception:
-                    pass
-
-                if isinstance(metric_value, str) and " " in metric_value:
-                    return try_to_float(metric_value.split()[0])
-
-                return None
-
-            eval_results.extend(
-                [
-                    EvalResult(
-                        task_name=description,
-                        task_type=description.lower().replace(" ", "-"),
-                        dataset_type=dataset_name or "unknown",
-                        dataset_name=dataset_name.replace("_", " ").replace("-", " ") if dataset_name else "Unknown",
-                        metric_name=metric_key.replace("_", " ").title(),
-                        metric_type=metric_key,
-                        metric_value=metric_value_float,
-                    )
-                    for metric_key, metric_value in metrics.items()
-                    if (metric_value_float := try_to_float(metric_value)) is not None
-                ]
-            )
-            all_metrics.update(metrics)
-
         # Group eval_metrics together by class name and table_lines metrics
         grouped_eval_metrics = []
         for eval_metric in eval_metrics:
@@ -1541,11 +1500,7 @@ class BaseModelCardData(CardData):
                 "-:|", "--|"
             )
 
-        return {
-            "eval_metrics": grouped_eval_metrics,
-            "metrics": list(all_metrics.keys()),
-            "model-index": eval_results_to_model_index(self.model_name, eval_results),
-        }
+        return {"eval_metrics": grouped_eval_metrics}
 
     def format_training_logs(self):
         # Get the keys from all evaluation lines
@@ -1664,11 +1619,42 @@ class BaseModelCardData(CardData):
 
     def run_usage_snippet(self) -> None:
         if self.usage_examples is None:
-            self.usage_examples = [
-                "The weather is lovely today.",
-                "It's so sunny outside!",
-                "He drove to the stadium.",
-            ]
+            if self.ir_model:
+                self.usage_examples = [
+                    "Which planet is known as the Red Planet?",
+                    "Venus is often called Earth's twin because of its similar size and proximity.",
+                    "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
+                    "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
+                ]
+            else:
+                self.usage_examples = [
+                    "The weather is lovely today.",
+                    "It's so sunny outside!",
+                    "He drove to the stadium.",
+                ]
+
+        if not self.generate_widget_examples:
+            return
+
+        # Convert VideoDecoder objects to VideoDict so they can be processed
+        prepared_examples = [self._prepare_for_inference(item) for item in self.usage_examples]
+
+        if self.ir_model:
+            query_embeddings = self.model.encode_query(
+                prepared_examples[0], convert_to_tensor=True, show_progress_bar=False
+            )
+            document_embeddings = self.model.encode_document(
+                prepared_examples[1:], convert_to_tensor=True, show_progress_bar=False
+            )
+            similarity = self.model.similarity(query_embeddings, document_embeddings)
+        else:
+            self.usage_examples = self.usage_examples[:3]  # Limit to 3 examples for standard similarity
+            prepared_examples = prepared_examples[:3]
+            embeddings = self.model.encode(prepared_examples, convert_to_tensor=True, show_progress_bar=False)
+            similarity = self.model.similarity(embeddings, embeddings)
+
+        with torch._tensor_str.printoptions(precision=4, sci_mode=False):
+            self.similarities = "\n".join(f"# {line}" for line in str(similarity.cpu()).splitlines())
 
     def generate_usage_snippet(self) -> str:
         """Generate the Python usage code snippet for the model card.
@@ -1676,9 +1662,12 @@ class BaseModelCardData(CardData):
         Returns the code block (including \\`\\`\\` delimiters) showing how to use this model.
         Called after :meth:`run_usage_snippet` has set :attr:`usage_examples` and :attr:`similarities`.
 
-        Subclasses can override this to generate snippets for different model types (e.g. IR models,
+        Subclasses can override this to generate snippets for different model types (e.g.
         cross-encoders) or multimodal inputs.
         """
+        if self.ir_model:
+            return self._generate_ir_snippet()
+
         # Use display version (with file paths) if available, otherwise original usage_examples
         display = self.usage_examples_display or self.usage_examples
         if not display:
@@ -1692,6 +1681,60 @@ class BaseModelCardData(CardData):
             return self._generate_non_text_snippet(display)
 
         return self._generate_text_snippet(display)
+
+    def _generate_ir_snippet(self) -> str:
+        """Generate a usage snippet that encodes queries and documents separately, for IR models."""
+        display = self.usage_examples_display or self.usage_examples
+        examples = display or [
+            "Which planet is known as the Red Planet?",
+            "Venus is often called Earth's twin because of its similar size and proximity.",
+            "Mars, known for its reddish appearance, is often referred to as the Red Planet.",
+            "Saturn, famous for its rings, is sometimes mistaken for the Red Planet.",
+        ]
+
+        model_class = getattr(self, "_snippet_model_class", "SentenceTransformer")
+        default_model_id = getattr(self, "_snippet_default_model_id", "sentence_transformers_model_id")
+        model_id = self.model_id or default_model_id
+        output_dim = self._get_snippet_output_dimensionality()
+        num_docs = len(examples) - 1
+
+        lines = [
+            f"from sentence_transformers import {model_class}",
+            "",
+            "# Download from the 🤗 Hub",
+            f'model = {model_class}("{model_id}")',
+            "# Run inference",
+            "queries = [",
+            f"    {self._format_snippet_value(examples[0])},",
+            "]",
+            "documents = [",
+        ]
+        for item in examples[1:]:
+            lines.append(f"    {self._format_snippet_value(item)},")
+        lines.extend(
+            [
+                "]",
+                "query_embeddings = model.encode_query(queries)",
+                "document_embeddings = model.encode_document(documents)",
+                "print(query_embeddings.shape, document_embeddings.shape)",
+                f"# [1, {output_dim}] [{num_docs}, {output_dim}]",
+                "",
+                "# Get the similarity scores for the embeddings",
+                "similarities = model.similarity(query_embeddings, document_embeddings)",
+            ]
+        )
+        if self.similarities:
+            lines.append("print(similarities)")
+            lines.append(self.similarities)
+        else:
+            lines.extend(
+                [
+                    "print(similarities.shape)",
+                    f"# [1, {num_docs}]",
+                ]
+            )
+
+        return "```python\n" + "\n".join(lines) + "\n```"
 
     def _generate_text_snippet(self, display: list[str] | None) -> str:
         """Generate a text-only usage snippet."""

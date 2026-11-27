@@ -1728,7 +1728,7 @@ class Transformer(InputModule):
         """Get the output embedding dimension from the transformer model.
 
         Returns:
-            int: The hidden dimension size of the model's embeddings.
+            int: Output embedding dimension. For ``"fill-mask"``, this is the vocabulary size.
 
         Raises:
             ValueError: If the embedding dimension cannot be determined from the model config.
@@ -1740,6 +1740,10 @@ class Transformer(InputModule):
         # `*ForRetrieval` heads project down to `config.embedding_dim`, not the backbone hidden size.
         if self.transformer_task == "retrieval" and getattr(self.model.config, "embedding_dim", None) is not None:
             return self.model.config.embedding_dim
+
+        # Masked language modeling heads output one logit per vocabulary token, e.g. the input of SpladePooling.
+        if self.transformer_task == "fill-mask" and getattr(self.model.config, "vocab_size", None) is not None:
+            return self.model.config.vocab_size
 
         def get_hidden_size_from_config(config):
             # If we're directly outputting sentence embeddings from the transformer (e.g., using the pooler output),

@@ -62,7 +62,7 @@ def test_nano_retrieval_evaluator_explicit_splits_name_and_prompts(nano_datasets
     )
     nano_datasets.discover.assert_not_called()
     assert evaluator.name == "MLDR_mean_64"
-    assert evaluator.csv_file == "MLDR_evaluation_mean_results.csv"
+    assert evaluator.csv_file == "MLDR_evaluation_mean_64_results.csv"
     assert evaluator.evaluators[0].name == "MLDR_second_task_64"
     assert evaluator.evaluators[0].query_prompt == "query: "
     assert evaluator.evaluators[0].corpus_prompt == "passage: "
@@ -73,6 +73,30 @@ def test_nano_retrieval_evaluator_explicit_splits_name_and_prompts(nano_datasets
         "query_prompts": {"second_task": "query: "},
         "corpus_prompts": {"second_task": "passage: "},
     }
+
+
+@pytest.mark.parametrize(
+    "evaluator_class, model_fixture, parameter, value",
+    [
+        (NanoRetrievalEvaluator, "stsb_bert_tiny_model", "truncate_dim", 64),
+        (SparseNanoRetrievalEvaluator, "splade_bert_tiny_model", "max_active_dims", 32),
+    ],
+)
+def test_nano_retrieval_evaluators_write_separate_csv_files(
+    evaluator_class, model_fixture, parameter, value, nano_datasets, request, tmp_path
+):
+    model = request.getfixturevalue(model_fixture)
+    evaluators = [evaluator_class(nano_datasets.dataset_id, **{parameter: setting}) for setting in (None, value)]
+    SequentialEvaluator(evaluators)(model, output_path=str(tmp_path), epoch=0, steps=1)
+    assert [evaluator.csv_file for evaluator in evaluators] == [
+        "custom-nano_evaluation_mean_results.csv",
+        f"custom-nano_evaluation_mean_{value}_results.csv",
+    ]
+    for evaluator in evaluators:
+        with (tmp_path / evaluator.csv_file).open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.reader(handle))
+        assert rows[0] == evaluator.csv_headers
+        assert [row[:2] for row in rows[1:]] == [["0", "1"]]
 
 
 @pytest.mark.parametrize(
