@@ -10,6 +10,12 @@ See also the modules from `sentence_transformers.base.evaluation` in [Base > Eva
 .. autoclass:: sentence_transformers.sentence_transformer.evaluation.BinaryClassificationEvaluator
 ```
 
+## EmbeddingExportEvaluator
+
+```{eval-rst}
+.. autoclass:: sentence_transformers.sentence_transformer.evaluation.EmbeddingExportEvaluator
+```
+
 ## EmbeddingSimilarityEvaluator
 
 ```{eval-rst}
