@@ -103,6 +103,7 @@ class StubQdrantClient:
     def __init__(self, **kwargs):
         self.init_kwargs = kwargs
         self.searched = []
+        self.batch_sizes = []
         self.uploaded = []
 
     def create_collection(self, **kwargs):
@@ -111,9 +112,15 @@ class StubQdrantClient:
     def upload_collection(self, vectors, ids, **kwargs):
         self.uploaded.extend((idx, vector["text"].indices, vector["text"].values) for idx, vector in zip(ids, vectors))
 
-    def query_points(self, query, **kwargs):
-        self.searched.append((query.indices, query.values))
-        return StubResponse([StubHit(0, 1.0)])
+    def query_batch_points(self, collection_name, requests):
+        self.batch_sizes.append(len(requests))
+        responses = []
+        for request in requests:
+            assert request.using == "text"
+            vector = request.query.nearest
+            self.searched.append((vector.indices, vector.values))
+            responses.append(StubResponse([StubHit(len(self.searched) - 1, 1.0)]))
+        return responses
 
 
 @pytest.fixture
@@ -124,6 +131,8 @@ def stub_qdrant_module(monkeypatch):
     http = types.ModuleType("qdrant_client.http")
     models = types.ModuleType("qdrant_client.http.models")
     models.SparseVector = StubSparseVector
+    models.QueryRequest = types.SimpleNamespace
+    models.NearestQuery = types.SimpleNamespace
     models.SparseVectorParams = types.SimpleNamespace
     models.SparseIndexParams = types.SimpleNamespace
     http.models = models
@@ -147,14 +156,28 @@ def test_qdrant_single_query_embedding(stub_qdrant_module, dtype: torch.dtype) -
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_qdrant_batch_of_queries(stub_qdrant_module, dtype: torch.dtype) -> None:
-    """A batch is searched once per query, each with only the tokens of that query."""
-    query = torch.sparse_coo_tensor([[0, 0, 1], [3, 8, 5]], [0.5, 0.25, 0.75], (2, VOCAB_SIZE), dtype=dtype).coalesce()
+    """An empty middle row keeps its place across request batches."""
+    query = torch.sparse_coo_tensor([[0, 0, 2], [3, 8, 5]], [0.5, 0.25, 0.75], (3, VOCAB_SIZE), dtype=dtype)
     client = StubQdrantClient()
 
-    results, _ = semantic_search_qdrant(query, corpus_index=(client, "collection"), top_k=1)
+    results, _ = semantic_search_qdrant(query, corpus_index=(client, "collection"), top_k=1, query_batch_size=2)
 
-    assert results == [[{"corpus_id": 0, "score": 1.0}], [{"corpus_id": 0, "score": 1.0}]]
-    assert client.searched == [([3, 8], [0.5, 0.25]), ([5], [0.75])]
+    assert results == [[{"corpus_id": idx, "score": 1.0}] for idx in range(3)]
+    assert client.searched == [([3, 8], [0.5, 0.25]), ([], []), ([5], [0.75])]
+    assert client.batch_sizes == [2, 1]
+
+
+def test_qdrant_empty_batch(stub_qdrant_module) -> None:
+    client = StubQdrantClient()
+    query = torch.empty(0, VOCAB_SIZE).to_sparse()
+    results, _ = semantic_search_qdrant(query, corpus_index=(client, "collection"))
+    assert results == []
+    assert client.batch_sizes == []
+
+
+def test_qdrant_invalid_query_batch_size(stub_qdrant_module) -> None:
+    with pytest.raises(ValueError, match="query_batch_size"):
+        semantic_search_qdrant(torch.empty(0, VOCAB_SIZE).to_sparse(), query_batch_size=0)
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
