@@ -86,8 +86,7 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
         prompt_name (str, optional): Model prompt to use for prediction. Defaults to None.
         batch_size (int): Prediction batch size. Defaults to 32.
         show_progress_bar (bool): Show evaluation progress. Defaults to False.
-        write_csv (bool): Write evaluation results to CSV. The aggregate filename includes ``rerank_k`` and ``at_k``.
-            Defaults to True.
+        write_csv (bool): Write evaluation results to CSV. Defaults to True.
         aggregate_fn (Callable[[list[float]], float]): Aggregation function. Defaults to np.mean.
         aggregate_key (str): Aggregate metric suffix. Defaults to "mean".
 
