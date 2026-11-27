@@ -164,29 +164,12 @@ def semantic_search_faiss(
             zero_embedding = np.zeros(corpus_index.d // 8, dtype=np.uint8)
         else:
             zero_embedding = np.zeros(corpus_index.d, dtype=np.float32)
-        top_k_embeddings = np.array(
-            [
+        rescored_scores = np.empty(indices.shape, dtype=np.float64)
+        for i, query_indices in enumerate(indices):
+            candidates = np.array(
                 [corpus_index.reconstruct(idx.item()) if idx != -1 else zero_embedding for idx in query_indices]
-                for query_indices in indices
-            ]
-        )
-        # `np.packbits` padded the embedding dimension up to a whole byte, so trim those bits back off
-        if corpus_precision == "ubinary":
-            top_k_embeddings = np.unpackbits(top_k_embeddings, axis=-1)[..., : rescore_embeddings.shape[-1]]
-        top_k_embeddings = top_k_embeddings.astype(int)
-        if corpus_precision == "uint8":
-            top_k_embeddings = _dequantize_embeddings(
-                top_k_embeddings,
-                corpus_precision,
-                ranges,
             )
-
-        # rescore_embeddings: [num_queries, embedding_dim]
-        # top_k_embeddings: [num_queries, top_k, embedding_dim]
-        # updated_scores: [num_queries, top_k]
-        # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
-        # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
-        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings).astype(np.float64, copy=False)
+            rescored_scores[i] = _rescore_candidates(rescore_embeddings[i], candidates, corpus_precision, ranges)
         # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
         rescored_scores[indices == -1] = -np.inf
         rescored_indices = np.argsort(-rescored_scores)[:, :top_k]
@@ -380,26 +363,10 @@ def semantic_search_usearch(
         # get() has no key for the padding slots, so look up any real key there as a placeholder and
         # disqualify its score below
         safe_indices = np.where(valid, indices, indices[valid][0])
-        top_k_embeddings = np.array([corpus_index.get(query_indices) for query_indices in safe_indices])
-        if corpus_precision in ("ubinary", "binary"):
-            # `np.packbits` padded the embedding dimension up to a whole byte, so trim those bits back off
-            top_k_embeddings = np.unpackbits(top_k_embeddings.astype(np.uint8), axis=-1)[
-                ..., : rescore_embeddings.shape[-1]
-            ]
-        top_k_embeddings = top_k_embeddings.astype(int)
-        if corpus_precision == "int8":
-            top_k_embeddings = _dequantize_embeddings(
-                top_k_embeddings,
-                corpus_precision,
-                ranges,
-            )
-
-        # rescore_embeddings: [num_queries, embedding_dim]
-        # top_k_embeddings: [num_queries, top_k, embedding_dim]
-        # updated_scores: [num_queries, top_k]
-        # We use einsum to calculate the dot product between the query and the top_k embeddings, equivalent to looping
-        # over the queries and calculating 'rescore_embeddings[i] @ top_k_embeddings[i].T'
-        rescored_scores = np.einsum("ij,ikj->ik", rescore_embeddings, top_k_embeddings).astype(np.float64, copy=False)
+        rescored_scores = np.empty(indices.shape, dtype=np.float64)
+        for i, query_indices in enumerate(safe_indices):
+            candidates = np.asarray(corpus_index.get(query_indices))
+            rescored_scores[i] = _rescore_candidates(rescore_embeddings[i], candidates, corpus_precision, ranges)
         # Disqualify the padding slots so their placeholder scores cannot outrank real candidates
         rescored_scores[~valid] = -np.inf
         query_ids = np.arange(len(query_embeddings))[:, None]
@@ -426,6 +393,19 @@ def semantic_search_usearch(
     if output_index:
         outputs = (*outputs, corpus_index)
     return outputs
+
+
+def _rescore_candidates(
+    query: np.ndarray, candidates: np.ndarray, precision: str, ranges: np.ndarray | None
+) -> np.ndarray:
+    """Expand one query's candidate vectors and return their dot products."""
+    if precision in ("binary", "ubinary"):
+        # A packed vector can have padding bits in its last byte.
+        candidates = np.unpackbits(candidates.astype(np.uint8, copy=False), axis=-1)[..., : query.shape[-1]]
+    candidates = candidates.astype(int)
+    if precision in ("int8", "uint8"):
+        candidates = _dequantize_embeddings(candidates, precision, ranges)
+    return np.einsum("j,kj->k", query, candidates)
 
 
 def _get_quantization_ranges(
