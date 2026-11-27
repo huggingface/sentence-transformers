@@ -258,10 +258,10 @@ class BaseTrainer(Trainer, ABC):
                 sample = next(iter(dataset))
                 naive_type_mapping = {str: "string", int: "int64", float: "float32", bool: "bool"}
 
-                def naive_feature(value: Any, _type_mapping: dict = naive_type_mapping) -> Any:
+                def naive_feature(value: Any) -> Any:
                     if isinstance(value, (list, tuple)):
                         return Sequence(naive_feature(value[0]) if value else Value("string"))
-                    return Value(_type_mapping.get(type(value), "null"))
+                    return Value(naive_type_mapping.get(type(value), "null"))
 
                 example_features = {key: naive_feature(value) for key, value in sample.items()}
                 raise ValueError(
