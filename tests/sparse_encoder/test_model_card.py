@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import torch
 
 from sentence_transformers import SparseEncoderTrainer, SparseEncoderTrainingArguments
 from sentence_transformers.base.model_card import generate_model_card
@@ -291,3 +292,33 @@ class TestGenerateUsageSnippetSparseEncoder:
         snippet = data.generate_usage_snippet()
 
         assert 'SparseEncoder("my-org/my-sparse-model")' in snippet
+
+    def test_sparse_encoder_ir_snippet(self) -> None:
+        data = SparseEncoderModelCardData()
+        data.ir_model = True
+        data.usage_examples = ["query?", "doc A", "doc B"]
+        snippet = data.generate_usage_snippet()
+
+        assert "from sentence_transformers import SparseEncoder" in snippet
+        assert 'SparseEncoder("sparse_encoder_model_id")' in snippet
+        assert "model.encode_query(queries)" in snippet
+        assert "model.encode_document(documents)" in snippet
+
+
+def test_model_card_ir_usage_snippet(inference_free_splade_bert_tiny_model: SparseEncoder) -> None:
+    model = inference_free_splade_bert_tiny_model
+    model.model_card_data.local_files_only = True
+    model.model_card_data.generate_widget_examples = True
+    assert model.model_card_data.ir_model
+
+    model_card = generate_model_card(model)
+
+    assert "query_embeddings = model.encode_query(queries)" in model_card
+    assert "document_embeddings = model.encode_document(documents)" in model_card
+    assert "model.encode(sentences)" not in model_card
+
+    query, *documents = model.model_card_data.usage_examples
+    similarity = model.similarity(model.encode_query([query]), model.encode_document(documents))
+    with torch._tensor_str.printoptions(precision=4, sci_mode=False):
+        expected = "\n".join(f"# {line}" for line in str(similarity.cpu()).splitlines())
+    assert f"print(similarities)\n{expected}" in model_card
