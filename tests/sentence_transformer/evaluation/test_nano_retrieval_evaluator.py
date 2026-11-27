@@ -85,7 +85,6 @@ def test_nano_retrieval_evaluator_explicit_splits_name_and_prompts(nano_datasets
 def test_nano_retrieval_evaluators_write_separate_csv_files(
     evaluator_class, model_fixture, parameter, value, nano_datasets, request, tmp_path
 ):
-    # Evaluators that only differ in e.g. truncate_dim must not append their aggregated rows to one file
     model = request.getfixturevalue(model_fixture)
     evaluators = [evaluator_class(nano_datasets.dataset_id, **{parameter: setting}) for setting in (None, value)]
     SequentialEvaluator(evaluators)(model, output_path=str(tmp_path), epoch=0, steps=1)

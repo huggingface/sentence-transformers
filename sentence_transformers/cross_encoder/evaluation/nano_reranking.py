@@ -86,7 +86,8 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
         prompt_name (str, optional): Model prompt to use for prediction. Defaults to None.
         batch_size (int): Prediction batch size. Defaults to 32.
         show_progress_bar (bool): Show evaluation progress. Defaults to False.
-        write_csv (bool): Write evaluation results to CSV. Defaults to True.
+        write_csv (bool): Write evaluation results to CSV. The aggregate filename includes ``rerank_k`` and ``at_k``.
+            Defaults to True.
         aggregate_fn (Callable[[list[float]], float]): Aggregation function. Defaults to np.mean.
         aggregate_key (str): Aggregate metric suffix. Defaults to "mean".
 
@@ -149,7 +150,9 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
             self._load_dataset(split, **reranking_kwargs)
             for split in tqdm(self.splits, desc=f"Loading {self.dataset_name} datasets", leave=False)
         ]
-        self.csv_file = f"{self.dataset_name}_evaluation_{aggregate_key}_results.csv"
+        self.csv_file = (
+            f"{self.dataset_name}_evaluation_{self.name.removeprefix(self.dataset_name + '_')}_results_@{at_k}.csv"
+        )
         self.csv_headers = ["epoch", "steps", "MAP", f"MRR@{at_k}", f"NDCG@{at_k}"]
         self.primary_metric = f"ndcg@{at_k}"
 
