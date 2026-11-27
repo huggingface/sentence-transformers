@@ -178,6 +178,57 @@ def test_dense_config_omits_default_use_residual(tmp_path: Path) -> None:
     assert loaded.use_residual is True
 
 
+@pytest.mark.parametrize(
+    "activation_function",
+    [
+        nn.LeakyReLU(0.3),
+        nn.Hardtanh(-2.0, 2.0),
+        nn.GELU(approximate="tanh"),
+        nn.Threshold(0.1, -1.0),
+        nn.PReLU(num_parameters=8, init=0.1),
+    ],
+    ids=["leaky_relu", "hardtanh", "gelu_tanh", "threshold", "prelu"],
+)
+def test_dense_activation_arguments_round_trip(tmp_path: Path, activation_function: nn.Module) -> None:
+    """Constructor arguments of the activation must survive save/load, or the reloaded module computes
+    different outputs (``LeakyReLU(0.3)`` became ``LeakyReLU(0.01)``), can't be built (``Threshold``),
+    or can't load its weights (``PReLU`` with 8 parameters)."""
+    dense = Dense(16, 8, activation_function=activation_function)
+    dense.save(str(tmp_path))
+    loaded = Dense.load(str(tmp_path), local_files_only=True)
+
+    assert repr(loaded.activation_function) == repr(activation_function)
+    features = {"sentence_embedding": torch.randn(4, 16) * 3}
+    torch.testing.assert_close(
+        loaded(dict(features))["sentence_embedding"], dense(dict(features))["sentence_embedding"]
+    )
+
+
+def test_dense_config_omits_default_activation_arguments(tmp_path: Path) -> None:
+    """Activations at their default arguments must not add ``activation_function_kwargs`` to config.json,
+    so those saves stay loadable by releases whose ``Dense.load`` doesn't drop unknown keys."""
+    Dense(16, 8, activation_function=nn.LeakyReLU()).save(str(tmp_path))
+    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert "activation_function_kwargs" not in config
+
+
+def test_dense_config_omits_arguments_of_non_torch_activations(tmp_path: Path) -> None:
+    """Arguments are only read back from ``torch`` classes: a custom module may store a different value
+    under the parameter's name, and passing it back would change the module on reload."""
+
+    class Scaled(nn.Module):
+        def __init__(self, alpha: float = 1.0) -> None:
+            super().__init__()
+            self.alpha = alpha * 2
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x * self.alpha
+
+    Dense(16, 8, activation_function=Scaled()).save(str(tmp_path))
+    config = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert "activation_function_kwargs" not in config
+
+
 @pytest.mark.parametrize("trust_remote_code", [False, True])
 def test_dense_activation_factory_requires_trust(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, trust_remote_code: bool
