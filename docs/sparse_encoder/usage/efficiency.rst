@@ -155,6 +155,10 @@ ONNX can be used to speed up inference by converting the model to ONNX format an
    # or
    pip install sentence-transformers[onnx]
 
+.. warning::
+
+   The ``onnx`` and ``onnx-gpu`` extras depend on ``optimum-onnx``, which currently requires ``transformers<4.58.0``. Sentence Transformers v6 requires ``transformers>=5.0.0``, so installing ``sentence-transformers[onnx]`` or ``sentence-transformers[onnx-gpu]`` without a version pin silently resolves to Sentence Transformers v5.x (such as ``5.7.0``) with ``transformers`` v4.x, and pinning ``>=6`` fails dependency resolution. Pin ``sentence-transformers[onnx]<6`` (or ``sentence-transformers[onnx-gpu]<6``) if you require ONNX, or use the default PyTorch backend or ``sentence-transformers[openvino]`` with v6.
+
 To convert a model to ONNX format, you can use the following code:
 
 .. code-block:: python

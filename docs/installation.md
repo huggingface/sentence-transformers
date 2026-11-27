@@ -7,13 +7,13 @@ We recommend **Python 3.10+**, **[PyTorch 2.2+](https://pytorch.org/get-started/
 - **Audio:** Adds dependencies for models that process audio inputs.
 - **Video:** Adds dependencies for models that process video inputs.
 - **Training:** Adds dependencies for training and finetuning models.
-- **ONNX:** Adds dependencies for loading, saving, inference, optimizing, and quantizing of models using the ONNX backend.
+- **ONNX:** Adds dependencies for loading, saving, inference, optimizing, and quantizing of models using the ONNX backend. Currently incompatible with Sentence Transformers v6 (`transformers>=5.0.0`) because `optimum-onnx` requires `transformers<4.58.0`; installing `[onnx]` or `[onnx-gpu]` without a version pin silently resolves to v5.x.
 - **OpenVINO:** Adds dependencies for loading, saving, and inference of models using the OpenVINO backend.
 - **Development**: All of the above plus some dependencies for developing Sentence Transformers, see [Editable Install](#editable-install).
 
 ```{eval-rst}
 | To pass :class:`torchcodec.AudioDecoder <torchcodec.decoders.AudioDecoder>` or :class:`torchcodec.VideoDecoder <torchcodec.decoders.VideoDecoder>` instances as inputs, you must install `torchcodec <https://github.com/pytorch/torchcodec>`_ separately, e.g. with: ``pip install torchcodec``.
-| Note that you can mix and match the various extras, e.g. ``pip install -U "sentence-transformers[train,image,video,onnx-gpu]"``.
+| Note that you can mix and match the various extras, e.g. ``pip install -U "sentence-transformers[train,image,video,openvino]"``.
 ```
 
 After installation, we recommend [logging in to Hugging Face](#log-in-to-hugging-face) for higher Hugging Face Hub rate limits and access to private or gated models and datasets your account can read.
@@ -63,6 +63,10 @@ After installation, we recommend [logging in to Hugging Face](#log-in-to-hugging
     Don't forget to add the module names to ``report_to`` in the Training Arguments when training, or they will not be used.
 
 .. tab:: ONNX
+
+    .. warning::
+
+        The ``onnx`` and ``onnx-gpu`` extras currently require ``transformers<4.58.0`` via ``optimum-onnx`` and are incompatible with Sentence Transformers v6 (``transformers>=5.0.0``). Installing them without a version pin silently resolves to Sentence Transformers v5.x, and pinning ``>=6`` fails dependency resolution. Pin ``<6`` explicitly if you require ONNX, or use the default PyTorch backend or ``sentence-transformers[openvino]`` with v6.
 
     For GPU and CPU:
     ::
@@ -133,6 +137,10 @@ After installation, we recommend [logging in to Hugging Face](#log-in-to-hugging
     Don't forget to add the module names to ``report_to`` in the Training Arguments when training, or they will not be used.
 
 .. tab:: ONNX
+
+    .. warning::
+
+        The ``onnx`` and ``onnx-gpu`` extras currently require ``transformers<4.58.0`` via ``optimum-onnx`` and are incompatible with Sentence Transformers v6 (``transformers>=5.0.0``). Installing them without a version pin silently resolves to Sentence Transformers v5.x, and pinning ``>=6`` fails dependency resolution. Pin ``<6`` explicitly if you require ONNX, or use the default PyTorch backend or ``sentence-transformers[openvino]`` with v6.
 
     For GPU and CPU:
     ::
@@ -206,6 +214,10 @@ The base package is available on conda-forge. Extras (e.g. `[image]`, `[train]`)
 
 .. tab:: ONNX
 
+    .. warning::
+
+        The ``onnx`` and ``onnx-gpu`` extras currently require ``transformers<4.58.0`` via ``optimum-onnx`` and are incompatible with Sentence Transformers v6 (``transformers>=5.0.0``). Installing them without a version pin silently resolves to Sentence Transformers v5.x, and pinning ``>=6`` fails dependency resolution. Pin ``<6`` explicitly if you require ONNX, or use the default PyTorch backend or ``sentence-transformers[openvino]`` with v6.
+
     For GPU and CPU:
     ::
 
@@ -277,6 +289,10 @@ You can install `sentence-transformers` directly from source to take advantage o
     Don't forget to add the module names to ``report_to`` in the Training Arguments when training, or they will not be used.
 
 .. tab:: ONNX
+
+    .. warning::
+
+        The ``onnx`` and ``onnx-gpu`` extras currently require ``transformers<4.58.0`` via ``optimum-onnx`` and are incompatible with Sentence Transformers v6 (``transformers>=5.0.0``). Installing from source with ``[onnx]`` or ``[onnx-gpu]`` fails dependency resolution against ``transformers>=5.0.0``.
 
     For GPU and CPU:
     ::
