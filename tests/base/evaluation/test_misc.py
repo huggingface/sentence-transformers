@@ -5,6 +5,7 @@ import csv
 from unittest.mock import Mock
 
 import pytest
+from datasets import Dataset
 
 from sentence_transformers.base.evaluation import BaseEvaluator, SequentialEvaluator
 from sentence_transformers.multi_vector_encoder.evaluation import (
@@ -174,7 +175,9 @@ def make_ir_evaluator(monkeypatch):
         "qrels": [{"query-id": "q", "corpus-id": "d"}],
     }
     monkeypatch.setattr(
-        NanoRetrievalEvaluator, "_load_dataset_subset_split", lambda self, subset, **kwargs: subsets[subset]
+        NanoRetrievalEvaluator,
+        "_load_dataset_subset_split",
+        lambda self, subset, **kwargs: Dataset.from_list(subsets[subset]),
     )
 
     def make(evaluator_class, **kwargs):

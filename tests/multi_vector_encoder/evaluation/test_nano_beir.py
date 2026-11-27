@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datasets import Dataset
+
 from sentence_transformers import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.evaluation import (
     MultiVectorInformationRetrievalEvaluator,
@@ -104,7 +106,9 @@ def test_nano_beir_evaluator_token_pooling_and_truncate_dim_naming(monkeypatch) 
         "qrels": [{"query-id": "q", "corpus-id": "d"}],
     }
     monkeypatch.setattr(
-        MultiVectorNanoBEIREvaluator, "_load_dataset_subset_split", lambda self, subset, **kwargs: subsets[subset]
+        MultiVectorNanoBEIREvaluator,
+        "_load_dataset_subset_split",
+        lambda self, subset, **kwargs: Dataset.from_list(subsets[subset]),
     )
 
     pooled = MultiVectorNanoBEIREvaluator(
@@ -164,7 +168,9 @@ def test_sequential_nano_beir_retains_distinct_pooling_results(monkeypatch, mve_
         "qrels": [{"query-id": query, "corpus-id": doc} for query, docs in qrels.items() for doc in docs],
     }
     monkeypatch.setattr(
-        MultiVectorNanoBEIREvaluator, "_load_dataset_subset_split", lambda self, subset, **kwargs: subsets[subset]
+        MultiVectorNanoBEIREvaluator,
+        "_load_dataset_subset_split",
+        lambda self, subset, **kwargs: Dataset.from_list(subsets[subset]),
     )
     evaluators = [
         MultiVectorNanoBEIREvaluator(dataset_names=["msmarco"], token_pooling=pooling, truncate_dim=dim, name=name)

@@ -12,7 +12,7 @@ from sentence_transformers.sentence_transformer.evaluation.nano_retrieval import
 
 class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
     """Evaluate a :class:`~sentence_transformers.multi_vector_encoder.model.MultiVectorEncoder` on a Nano
-    text retrieval collection using late interaction.
+    retrieval collection using late interaction.
 
     Compatible collections are listed in the
     `Nano datasets collection <https://huggingface.co/collections/sentence-transformers/nano-datasets>`_.
@@ -29,6 +29,8 @@ class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
         splits (list[str], optional): Tasks to evaluate. Defaults to all qrels splits.
         name (str, optional): Collection name used as the prefix of metric names and output files.
             Defaults to the last part of ``dataset_id``, e.g. ``"NanoMTEB-Dutch"``.
+        corpus_column (str, optional): Column of the corpus subset with the documents to encode, e.g. ``"image"`` for
+            visual document retrieval. Defaults to None, which selects ``"input"`` if present, otherwise ``"text"``.
         corpus_chunk_size (int): Documents to encode and score per chunk. Larger values keep more document
             embeddings in memory but require fewer encoding passes. Defaults to 5000.
         chunk_elements (int, optional): Element budget for the 4D
@@ -74,6 +76,17 @@ class MultiVectorNanoRetrievalEvaluator(NanoRetrievalEvaluator):
             evaluator = MultiVectorNanoRetrievalEvaluator("hakari-bench/NanoMTEB-Dutch", batch_size=8)
             results = evaluator(model)
             print(results[evaluator.primary_metric])
+
+        Collections with page images, such as NanoViDoRe, can be evaluated with a visual document retriever by reading
+        the documents from the ``image`` column::
+
+            model = MultiVectorEncoder("vidore/colqwen2-v1.0")
+            evaluator = MultiVectorNanoRetrievalEvaluator(
+                "hotchpotch/NanoViDoRe_v3", corpus_column="image", batch_size=8
+            )
+            results = evaluator(model)
+            print(evaluator.primary_metric)
+            # => "NanoViDoRe_v3_mean_maxsim_ndcg@10"
     """
 
     information_retrieval_class = MultiVectorInformationRetrievalEvaluator
