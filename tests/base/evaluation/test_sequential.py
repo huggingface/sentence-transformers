@@ -4,6 +4,10 @@ import pytest
 
 from sentence_transformers.base.evaluation import BaseEvaluator, SequentialEvaluator
 from sentence_transformers.base.model_card import BaseModelCardData
+from sentence_transformers.multi_vector_encoder.evaluation import MultiVectorNanoRetrievalEvaluator
+from sentence_transformers.multi_vector_encoder.modules import HierarchicalTokenPooling
+from sentence_transformers.sentence_transformer.evaluation import NanoRetrievalEvaluator
+from sentence_transformers.sparse_encoder.evaluation import SparseNanoRetrievalEvaluator
 
 
 class ScoreEvaluator(BaseEvaluator):
@@ -41,49 +45,90 @@ def test_sequential_evaluator_retains_model_card_metrics() -> None:
     assert data.training_logs == [{"Epoch": 1, "Step": 2, "retrieval": 0.75, "similarity": 0.5}]
 
 
-@pytest.fixture
-def nano_subsets(monkeypatch):
-    from datasets import Dataset
-
-    from sentence_transformers.sentence_transformer.evaluation import NanoRetrievalEvaluator
-
-    subsets = {
-        "queries": [{"_id": "q", "text": "query"}],
-        "corpus": [{"_id": "d", "text": "document", "image": "image"}],
-        "qrels": [{"query-id": "q", "corpus-id": "d"}],
-    }
-    monkeypatch.setattr(
-        NanoRetrievalEvaluator,
-        "_load_dataset_subset_split",
-        lambda self, subset, **kwargs: Dataset.from_list(subsets[subset]),
+def test_sequential_evaluator_warns_on_duplicate_metrics(caplog) -> None:
+    evaluator = SequentialEvaluator(
+        [ScoreEvaluator("retrieval", 0.75), ScoreEvaluator("retrieval", 0.5)],
+        main_score_function=lambda scores: sum(scores) / len(scores),
     )
+    with caplog.at_level("WARNING"):
+        results = evaluator(None)
+    assert results == {"retrieval": 0.5, "sequential_score": 0.625}
+    assert "Duplicate metric keys in SequentialEvaluator: ['retrieval']" in caplog.text
 
 
-def test_sequential_evaluator_rejects_nano_evaluators_with_the_same_name(nano_subsets) -> None:
-    from sentence_transformers.sentence_transformer.evaluation import NanoRetrievalEvaluator
-
-    text = NanoRetrievalEvaluator("org/NanoTest", splits=["task"])
-    image = NanoRetrievalEvaluator("org/NanoTest", splits=["task"], corpus_column="image")
-
-    with pytest.raises(ValueError, match="share the name 'NanoTest'") as exc_info:
-        SequentialEvaluator([text, image])
-    message = str(exc_info.value)
-    assert 'NanoRetrievalEvaluator("org/NanoTest", name="NanoTest-text")' in message
-    assert 'NanoRetrievalEvaluator("org/NanoTest", name="NanoTest-image", corpus_column="image")' in message
-
-    with pytest.raises(ValueError, match='name="NanoTest-1".*\n.*name="NanoTest-2"'):
-        SequentialEvaluator([text, NanoRetrievalEvaluator("org/NanoTest", splits=["task"])])
-
-
-def test_sequential_evaluator_accepts_nano_evaluators_with_distinct_names(nano_subsets) -> None:
-    from sentence_transformers.sentence_transformer.evaluation import NanoRetrievalEvaluator
-
-    SequentialEvaluator(
+def test_sequential_evaluator_can_be_nested(caplog) -> None:
+    evaluator = SequentialEvaluator(
         [
-            NanoRetrievalEvaluator("org/NanoTest", splits=["task"], name="NanoTest-text"),
-            NanoRetrievalEvaluator("org/NanoTest", splits=["task"], name="NanoTest-image", corpus_column="image"),
-            NanoRetrievalEvaluator("org/NanoTest", splits=["task"], truncate_dim=8),
-        ]
+            SequentialEvaluator([ScoreEvaluator("retrieval", 0.75)]),
+            SequentialEvaluator([ScoreEvaluator("similarity", 0.5)]),
+        ],
+        main_score_function=lambda scores: sum(scores) / len(scores),
     )
-    # Evaluators without a dataset_id are not checked
-    SequentialEvaluator([ScoreEvaluator("retrieval", 0.75), ScoreEvaluator("retrieval", 0.5)])
+    assert evaluator(None) == {"retrieval": 0.75, "similarity": 0.5, "sequential_score": 0.625}
+    assert "Duplicate metric keys" not in caplog.text
+
+
+def test_sequential_evaluator_rejects_duplicate_nano_names(nano_datasets) -> None:
+    evaluators = [
+        NanoRetrievalEvaluator(nano_datasets.dataset_id, splits=["first_task"], main_score_function=score)
+        for score in ("cosine", "dot")
+    ]
+    with pytest.raises(ValueError, match="distinct names.*custom-nano_mean"):
+        SequentialEvaluator(evaluators)
+
+
+@pytest.mark.parametrize(
+    "evaluator_class,options",
+    [
+        (NanoRetrievalEvaluator, {"truncate_dim": 8}),
+        (SparseNanoRetrievalEvaluator, {"max_active_dims": 8}),
+        (MultiVectorNanoRetrievalEvaluator, {"token_pooling": HierarchicalTokenPooling(max_tokens=4)}),
+    ],
+)
+def test_sequential_evaluator_uses_resolved_nano_names(evaluator_class, options, nano_datasets) -> None:
+    first = evaluator_class(nano_datasets.dataset_id, splits=["first_task"])
+    second = evaluator_class(nano_datasets.dataset_id, splits=["first_task"], **options)
+    assert first.name != second.name
+    SequentialEvaluator([first, second])
+    with pytest.raises(ValueError, match="distinct names"):
+        SequentialEvaluator([first, first])
+
+
+def test_sequential_evaluator_accepts_distinct_nano_names(nano_datasets, stsb_bert_tiny_model, caplog) -> None:
+    evaluators = [
+        NanoRetrievalEvaluator(
+            nano_datasets.dataset_id,
+            splits=["first_task"],
+            name=score,
+            main_score_function=score,
+            write_csv=False,
+        )
+        for score in ("cosine", "dot")
+    ]
+    results = SequentialEvaluator(evaluators)(stsb_bert_tiny_model)
+    assert all(evaluator.primary_metric in results for evaluator in evaluators)
+    assert results["sequential_score"] == results[evaluators[-1].primary_metric]
+    assert "Duplicate metric keys" not in caplog.text
+
+
+def test_sequential_evaluator_warns_on_overlapping_nano_metrics(nano_datasets, stsb_bert_tiny_model, caplog) -> None:
+    corpus = nano_datasets.subsets["corpus"]
+    nano_datasets.subsets["corpus"] = corpus.add_column("input", list(reversed(corpus["text"])))
+    evaluator = SequentialEvaluator(
+        NanoRetrievalEvaluator(
+            nano_datasets.dataset_id,
+            splits=["first_task"],
+            corpus_column=column,
+            aggregate_key=aggregate_key,
+            write_csv=False,
+        )
+        for column, aggregate_key in zip(("text", "input"), ("text_mean", "input_mean"))
+    )
+    expected = evaluator.evaluators[-1](stsb_bert_tiny_model)
+    with caplog.at_level("WARNING"):
+        results = evaluator(stsb_bert_tiny_model)
+    metric = "custom-nano_first_task_cosine_ndcg@10"
+    assert results[metric] == expected[metric]
+    assert results["sequential_score"] == expected[evaluator.evaluators[-1].primary_metric]
+    assert "Duplicate metric keys" in caplog.text
+    assert metric in caplog.text
