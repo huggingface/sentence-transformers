@@ -81,6 +81,37 @@ def test_pooling_respects_include_prompt(
 
 
 @pytest.mark.parametrize("padding_side", ["right", "left"])
+@pytest.mark.parametrize("bucket", ["text", "common"])
+@pytest.mark.parametrize("padding", [True, "max_length"])
+def test_pooling_prompt_exclusion_respects_processing_kwargs(
+    stsb_bert_tiny_model: SentenceTransformer, padding_side: str, bucket: str, padding: bool | str
+) -> None:
+    model = stsb_bert_tiny_model
+    model.tokenizer.padding_side = padding_side
+    model.set_pooling_include_prompt(False)
+    sentences = ["Text one", "Text two is a bit longer"]
+    prompt = "query: "
+    # This tokenizer splits the prompt into "query" and ":", with no special tokens.
+    assert model.tokenizer.tokenize(prompt) == ["query", ":"]
+
+    # Warm the default prompt-length cache before overriding tokenization for one call.
+    baseline = model.encode(sentences, prompt=prompt, convert_to_tensor=True)
+    processing_kwargs = {bucket: {"add_special_tokens": False}}
+    processing_kwargs.setdefault("text", {}).update(padding=padding, max_length=16)
+    outputs = model.encode(
+        sentences,
+        prompt=prompt,
+        output_value=None,
+        processing_kwargs=processing_kwargs,
+    )
+    for output in outputs:
+        real_tokens = output["token_embeddings"][output["attention_mask"].bool()]
+        expected = real_tokens[2:].mean(dim=0)
+        torch.testing.assert_close(output["sentence_embedding"], expected)
+    torch.testing.assert_close(model.encode(sentences, prompt=prompt, convert_to_tensor=True), baseline)
+
+
+@pytest.mark.parametrize("padding_side", ["right", "left"])
 def test_pooling_prompt_exclusion_is_idempotent(stsb_bert_tiny_model: SentenceTransformer, padding_side: str) -> None:
     """The wrapper losses re-embed the dicts they were given, e.g. once per layer in
     AdaptiveLayerLoss. Narrowing ``attention_mask`` in place would hide the prompt from the encoder
