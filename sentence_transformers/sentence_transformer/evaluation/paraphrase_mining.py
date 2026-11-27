@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from functools import partial
 from typing import TYPE_CHECKING
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
@@ -122,7 +123,7 @@ class ParaphraseMiningEvaluator(BaseEvaluator):
         # Store the flag under a private name, as `self.add_transitive_closure` refers to the static method
         self._add_transitive_closure = add_transitive_closure
 
-        self.duplicates = defaultdict(lambda: defaultdict(bool))
+        self.duplicates = defaultdict(partial(defaultdict, bool))
         if duplicates_dict is not None:
             for id1, id2_to_is_duplicate in duplicates_dict.items():
                 self.duplicates[id1].update(id2_to_is_duplicate)
