@@ -239,7 +239,7 @@ class EmbeddingSimilarityEvaluator(BaseEvaluator):
             show_progress_bar=self.show_progress_bar,
             convert_to_numpy=True,
             precision=self.precision,
-            normalize_embeddings=bool(self.precision),
+            normalize_embeddings=self.precision in ("int8", "uint8", "binary", "ubinary"),
             truncate_dim=self.truncate_dim,
             **kwargs,
         )
