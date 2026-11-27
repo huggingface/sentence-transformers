@@ -76,6 +76,7 @@ def _configure_kernel(
     *,
     training: bool = False,
     defaults: dict[str, tuple[str, str, int]] | None = None,
+    device_defaults: dict[str, dict[str, tuple[str, str, str]]] | None = None,
     trust_remote_code: bool | list[str] = False,
 ) -> None:
     """Kernelize the supplied kernel-aware layers in place."""
@@ -106,6 +107,12 @@ def _configure_kernel(
             }
             for target, (repo, layer, version) in (defaults or {}).items()
         }
+        # Device defaults pin a revision, as their repositories live outside the Sentence Transformers organization.
+        for device_type, targets in (device_defaults or {}).items():
+            for target, (repo, layer, revision) in targets.items():
+                mapping.setdefault(target, {})[device_type] = LayerRepository(
+                    repo, layer_name=layer, revision=revision, trust_remote_code=trust_remote_code
+                )
 
     mapping.update(_create_kernel_mapping(config, device))
 
