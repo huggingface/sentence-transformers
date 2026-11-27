@@ -149,7 +149,9 @@ class CrossEncoderNanoRerankingEvaluator(BaseEvaluator):
             self._load_dataset(split, **reranking_kwargs)
             for split in tqdm(self.splits, desc=f"Loading {self.dataset_name} datasets", leave=False)
         ]
-        self.csv_file = f"{self.dataset_name}_evaluation_{aggregate_key}_results.csv"
+        self.csv_file = (
+            f"{self.dataset_name}_evaluation_{self.name.removeprefix(self.dataset_name + '_')}_results_@{at_k}.csv"
+        )
         self.csv_headers = ["epoch", "steps", "MAP", f"MRR@{at_k}", f"NDCG@{at_k}"]
         self.primary_metric = f"ndcg@{at_k}"
 

@@ -234,7 +234,10 @@ class NanoRetrievalEvaluator(BaseEvaluator):
             for split in tqdm(self.splits, desc=f"Loading {self.dataset_name} datasets", leave=False)
         ]
 
-        self.csv_file: str = f"{self.dataset_name}_evaluation_{aggregate_key}_results.csv"
+        # Follow the aggregate name, so that evaluators differing in e.g. truncate_dim don't share a file
+        self.csv_file: str = (
+            f"{self.dataset_name}_evaluation_{self.name.removeprefix(self.dataset_name + '_')}_results.csv"
+        )
         self.csv_headers = ["epoch", "steps"]
 
         self._append_csv_headers(self.score_function_names)
