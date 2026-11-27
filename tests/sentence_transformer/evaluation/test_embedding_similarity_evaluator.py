@@ -35,6 +35,23 @@ def test_embedding_similarity_evaluator_precisions(
     assert np.isfinite(metrics[evaluator.primary_metric])
 
 
+def test_float32_precision_preserves_embedding_norms() -> None:
+    model = SentenceTransformer(modules=[BoW(["red", "blue", "green"])], device="cpu")
+    evaluator = EmbeddingSimilarityEvaluator(
+        ["red", "red blue", "red blue green"],
+        ["red", "red red", "red red red"],
+        [1, 2, 3],
+        precision="float32",
+        main_similarity="dot",
+        write_csv=False,
+    )
+
+    # The dot products are 1, 2 and 3. Normalizing the embeddings reverses their order.
+    metrics = evaluator(model)
+    assert metrics["pearson_dot"] == pytest.approx(1.0)
+    assert metrics["spearman_dot"] == pytest.approx(1.0)
+
+
 @pytest.mark.parametrize("precision", ["int8", "uint8"])
 def test_embedding_similarity_evaluator_shared_quantization_ranges(precision: str) -> None:
     """Reversing a pair must not change the calibration or its symmetric similarity."""
