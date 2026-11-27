@@ -92,52 +92,52 @@ The NanoBEIR column reports the mean NDCG@10 (higher is better) across the 13 [N
 
 ColPali-style models embed page images as documents and text as queries.
 
-The NanoViDoRe column reports the mean NDCG@10 (higher is better) across [NanoViDoRe v3](https://huggingface.co/datasets/lightonai/NanoViDoRe_v3), a compact visual document retrieval benchmark spanning 8 subsets (computer science, energy, finance in English and French, HR, industrial, pharmaceuticals, and physics). Like with NanoBEIR, NanoViDoRe is a small benchmark which shouldn't replace evaluation on your own data.
+The NanoViDoRe column reports the mean NDCG@10 (higher is better) across [NanoViDoRe v3](https://huggingface.co/datasets/hotchpotch/NanoViDoRe_v3), as computed by `MultiVectorNanoRetrievalEvaluator("hotchpotch/NanoViDoRe_v3", corpus_column="image")`. NanoViDoRe v3 is a compact visual document retrieval benchmark spanning 8 subsets (computer science, energy, finance in English and French, HR, industrial, pharmaceuticals, and physics). Like with NanoBEIR, NanoViDoRe is a small benchmark which shouldn't replace evaluation on your own data.
 
 | Model | Parameters | Dimensionality | NanoViDoRe | Notes |
 | --- | :---: | :---: | :---: | --- |
-| [perplexity-ai/pplx-embed-v2-late-9b](https://huggingface.co/perplexity-ai/pplx-embed-v2-late-9b) | 8.39B | 128 | 0.6633 | - |
-| [webAI-Official/webAI-ColVec1.1-8b](https://huggingface.co/webAI-Official/webAI-ColVec1.1-8b) | 8.4B | 640 | 0.6580 | needs `trust_remote_code=True` |
-| [webAI-Official/webAI-ColVec1.1-4b](https://huggingface.co/webAI-Official/webAI-ColVec1.1-4b) | 4.5B | 640 | 0.6520 | needs `trust_remote_code=True` |
-| [vultr/VultronRetrieverPrime-Qwen3.5-8B](https://huggingface.co/vultr/VultronRetrieverPrime-Qwen3.5-8B) | 8.39B | 320 | 0.6423 | - |
-| [vultr/VultronRetrieverCore-Qwen3.5-4.5B](https://huggingface.co/vultr/VultronRetrieverCore-Qwen3.5-4.5B) | 4.54B | 320 | 0.6410 | - |
-| [tencent/EVIE-Preview-4.5B](https://huggingface.co/tencent/EVIE-Preview-4.5B) | 4.54B | 128 | 0.6405 | - |
-| [nvidia/nemotron-colembed-vl-8b-v2](https://huggingface.co/nvidia/nemotron-colembed-vl-8b-v2) | 8.77B | 4096 | 0.6374 | `revision="refs/pr/4"`, needs `trust_remote_code=True` |
-| [athrael-soju/colqwen3.5-4.5B-v3](https://huggingface.co/athrael-soju/colqwen3.5-4.5B-v3) | 4.54B | 320 | 0.6358 | - |
-| [perplexity-ai/pplx-embed-v2-late-0.6b](https://huggingface.co/perplexity-ai/pplx-embed-v2-late-0.6b) | 594M | 128 | 0.6249 | - |
-| [TomoroAI/tomoro-colqwen3-embed-8b](https://huggingface.co/TomoroAI/tomoro-colqwen3-embed-8b) | 8.8B | 320 | 0.6206 | needs `trust_remote_code=True` |
-| [nvidia/nemotron-colembed-vl-4b-v2](https://huggingface.co/nvidia/nemotron-colembed-vl-4b-v2) | 4.83B | 2560 | 0.6200 | `revision="refs/pr/7"`, needs `trust_remote_code=True` |
-| [OpenSearch-AI/Ops-Colqwen3-4B](https://huggingface.co/OpenSearch-AI/Ops-Colqwen3-4B) | 4.44B | 2560 | 0.6150 | `revision="refs/pr/5"`, needs `trust_remote_code=True` |
-| [nvidia/llama-nemotron-colembed-vl-3b-v2](https://huggingface.co/nvidia/llama-nemotron-colembed-vl-3b-v2) | 4.41B | 3072 | 0.6112 | `revision="refs/pr/3"`, needs `trust_remote_code=True` |
-| [tsystems/colqwen2.5-3b-multilingual-v1.0](https://huggingface.co/tsystems/colqwen2.5-3b-multilingual-v1.0) | 3.75B | 128 | 0.6039 | - |
-| [tsystems/colqwen2.5-3b-multilingual-v1.0-merged](https://huggingface.co/tsystems/colqwen2.5-3b-multilingual-v1.0-merged) | 3.75B | 128 | 0.6027 | - |
-| [TomoroAI/tomoro-colqwen3-embed-4b](https://huggingface.co/TomoroAI/tomoro-colqwen3-embed-4b) | 4.4B | 320 | 0.6019 | needs `trust_remote_code=True` |
-| [nomic-ai/colnomic-embed-multimodal-7b](https://huggingface.co/nomic-ai/colnomic-embed-multimodal-7b) | 8.29B | 128 | 0.5942 | `revision="refs/pr/3"` |
-| [nomic-ai/colnomic-embed-multimodal-3b](https://huggingface.co/nomic-ai/colnomic-embed-multimodal-3b) | 3.75B | 128 | 0.5929 | `revision="refs/pr/6"` |
-| [VAGOsolutions/SauerkrautLM-ColQwen3-8b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-8b-v0.1) | 8.15B | 128 | 0.5819 | - |
-| [Metric-AI/ColQwen2.5-3b-multilingual-v1.0](https://huggingface.co/Metric-AI/ColQwen2.5-3b-multilingual-v1.0) | 3.75B | 128 | 0.5763 | `revision="refs/pr/2"` |
-| [vultr/VultronRetrieverFlash-Qwen3.5-0.8B](https://huggingface.co/vultr/VultronRetrieverFlash-Qwen3.5-0.8B) | 853M | 320 | 0.5693 | - |
-| [VAGOsolutions/SauerkrautLM-ColQwen3-4b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-4b-v0.1) | 4.44B | 128 | 0.5656 | - |
-| [VAGOsolutions/SauerkrautLM-ColQwen3-2b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-2b-v0.1) | 2.13B | 128 | 0.5530 | - |
-| [Verm1ion/ColTurk-VDR-Qwen3VL-4B-v1.0](https://huggingface.co/Verm1ion/ColTurk-VDR-Qwen3VL-4B-v1.0) | 4.44B | 320 | 0.5434 | `revision="refs/pr/1"` |
-| [vidore/colqwen2.5-v0.2](https://huggingface.co/vidore/colqwen2.5-v0.2) | 3.8B | 128 | 0.5402 | - |
-| [vidore/colqwen2.5-v0.1](https://huggingface.co/vidore/colqwen2.5-v0.1) | 3.8B | 128 | 0.5395 | - |
-| [vidore/colqwen-omni-v0.1](https://huggingface.co/vidore/colqwen-omni-v0.1) | 4.4B | 128 | 0.5309 | - |
-| [VAGOsolutions/SauerkrautLM-ColQwen3-1.7b-Turbo-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-1.7b-Turbo-v0.1) | 1.76B | 128 | 0.5035 | - |
-| [vidore/colpali-v1.3](https://huggingface.co/vidore/colpali-v1.3) | 2.9B | 128 | 0.4802 | - |
-| [vidore/colpali-v1.3-hf](https://huggingface.co/vidore/colpali-v1.3-hf) | 2.9B | 128 | 0.4793 | - |
-| [vidore/colpali-v1.2](https://huggingface.co/vidore/colpali-v1.2) | 2.9B | 128 | 0.4691 | - |
-| [vidore/colqwen2-v1.0](https://huggingface.co/vidore/colqwen2-v1.0) | 2.2B | 128 | 0.4685 | - |
-| [vidore/colqwen2-v0.1](https://huggingface.co/vidore/colqwen2-v0.1) | 2.2B | 128 | 0.4526 | - |
-| [vidore/colpali](https://huggingface.co/vidore/colpali) | 2.9B | 128 | 0.4516 | - |
-| [vidore/colpali-v1.1](https://huggingface.co/vidore/colpali-v1.1) | 2.9B | 128 | 0.4314 | - |
-| [VAGOsolutions/SauerkrautLM-ColLFM2-450M-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColLFM2-450M-v0.1) | 451M | 128 | 0.4249 | - |
-| [vidore/colsmolvlm-v0.1](https://huggingface.co/vidore/colsmolvlm-v0.1) | 2.1B | 128 | 0.4054 | - |
-| [VAGOsolutions/SauerkrautLM-ColMinistral3-3b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColMinistral3-3b-v0.1) | 4.25B | 128 | 0.3978 | - |
-| [vidore/colpali-hard-v1.1](https://huggingface.co/vidore/colpali-hard-v1.1) | 2.9B | 128 | 0.3949 | - |
-| [vidore/colSmol-500M](https://huggingface.co/vidore/colSmol-500M) | 507M | 128 | 0.3459 | - |
-| [vidore/colSmol-256M](https://huggingface.co/vidore/colSmol-256M) | 256M | 128 | 0.2673 | - |
-| [ModernVBERT/colmodernvbert](https://huggingface.co/ModernVBERT/colmodernvbert) | 252M | 128 | 0.2632 | - |
+| [perplexity-ai/pplx-embed-v2-late-9b](https://huggingface.co/perplexity-ai/pplx-embed-v2-late-9b) | 8.39B | 128 | 0.6574 | - |
+| [webAI-Official/webAI-ColVec1.1-8b](https://huggingface.co/webAI-Official/webAI-ColVec1.1-8b) | 8.4B | 640 | 0.6519 | needs `trust_remote_code=True` |
+| [webAI-Official/webAI-ColVec1.1-4b](https://huggingface.co/webAI-Official/webAI-ColVec1.1-4b) | 4.5B | 640 | 0.6445 | needs `trust_remote_code=True` |
+| [athrael-soju/colqwen3.5-4.5B-v3](https://huggingface.co/athrael-soju/colqwen3.5-4.5B-v3) | 4.54B | 320 | 0.6427 | - |
+| [vultr/VultronRetrieverPrime-Qwen3.5-8B](https://huggingface.co/vultr/VultronRetrieverPrime-Qwen3.5-8B) | 8.39B | 320 | 0.6390 | - |
+| [tencent/EVIE-Preview-4.5B](https://huggingface.co/tencent/EVIE-Preview-4.5B) | 4.54B | 128 | 0.6385 | - |
+| [vultr/VultronRetrieverCore-Qwen3.5-4.5B](https://huggingface.co/vultr/VultronRetrieverCore-Qwen3.5-4.5B) | 4.54B | 320 | 0.6370 | - |
+| [nvidia/nemotron-colembed-vl-8b-v2](https://huggingface.co/nvidia/nemotron-colembed-vl-8b-v2) | 8.77B | 4096 | 0.6296 | `revision="refs/pr/4"`, needs `trust_remote_code=True` |
+| [perplexity-ai/pplx-embed-v2-late-0.6b](https://huggingface.co/perplexity-ai/pplx-embed-v2-late-0.6b) | 594M | 128 | 0.6253 | - |
+| [TomoroAI/tomoro-colqwen3-embed-8b](https://huggingface.co/TomoroAI/tomoro-colqwen3-embed-8b) | 8.8B | 320 | 0.6192 | needs `trust_remote_code=True` |
+| [nvidia/nemotron-colembed-vl-4b-v2](https://huggingface.co/nvidia/nemotron-colembed-vl-4b-v2) | 4.83B | 2560 | 0.6188 | `revision="refs/pr/7"`, needs `trust_remote_code=True` |
+| [OpenSearch-AI/Ops-Colqwen3-4B](https://huggingface.co/OpenSearch-AI/Ops-Colqwen3-4B) | 4.44B | 2560 | 0.6144 | `revision="refs/pr/5"`, needs `trust_remote_code=True` |
+| [TomoroAI/tomoro-colqwen3-embed-4b](https://huggingface.co/TomoroAI/tomoro-colqwen3-embed-4b) | 4.4B | 320 | 0.6072 | needs `trust_remote_code=True` |
+| [nvidia/llama-nemotron-colembed-vl-3b-v2](https://huggingface.co/nvidia/llama-nemotron-colembed-vl-3b-v2) | 4.41B | 3072 | 0.6056 | `revision="refs/pr/3"`, needs `trust_remote_code=True` |
+| [tsystems/colqwen2.5-3b-multilingual-v1.0](https://huggingface.co/tsystems/colqwen2.5-3b-multilingual-v1.0) | 3.75B | 128 | 0.6014 | - |
+| [tsystems/colqwen2.5-3b-multilingual-v1.0-merged](https://huggingface.co/tsystems/colqwen2.5-3b-multilingual-v1.0-merged) | 3.75B | 128 | 0.6010 | - |
+| [nomic-ai/colnomic-embed-multimodal-3b](https://huggingface.co/nomic-ai/colnomic-embed-multimodal-3b) | 3.75B | 128 | 0.5994 | `revision="refs/pr/6"` |
+| [nomic-ai/colnomic-embed-multimodal-7b](https://huggingface.co/nomic-ai/colnomic-embed-multimodal-7b) | 8.29B | 128 | 0.5988 | `revision="refs/pr/3"` |
+| [VAGOsolutions/SauerkrautLM-ColQwen3-8b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-8b-v0.1) | 8.15B | 128 | 0.5855 | - |
+| [Metric-AI/ColQwen2.5-3b-multilingual-v1.0](https://huggingface.co/Metric-AI/ColQwen2.5-3b-multilingual-v1.0) | 3.75B | 128 | 0.5827 | `revision="refs/pr/2"` |
+| [vultr/VultronRetrieverFlash-Qwen3.5-0.8B](https://huggingface.co/vultr/VultronRetrieverFlash-Qwen3.5-0.8B) | 853M | 320 | 0.5710 | - |
+| [VAGOsolutions/SauerkrautLM-ColQwen3-4b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-4b-v0.1) | 4.44B | 128 | 0.5709 | - |
+| [VAGOsolutions/SauerkrautLM-ColQwen3-2b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-2b-v0.1) | 2.13B | 128 | 0.5648 | - |
+| [Verm1ion/ColTurk-VDR-Qwen3VL-4B-v1.0](https://huggingface.co/Verm1ion/ColTurk-VDR-Qwen3VL-4B-v1.0) | 4.44B | 320 | 0.5606 | `revision="refs/pr/1"` |
+| [vidore/colqwen2.5-v0.1](https://huggingface.co/vidore/colqwen2.5-v0.1) | 3.8B | 128 | 0.5604 | - |
+| [vidore/colqwen-omni-v0.1](https://huggingface.co/vidore/colqwen-omni-v0.1) | 4.4B | 128 | 0.5577 | - |
+| [vidore/colqwen2.5-v0.2](https://huggingface.co/vidore/colqwen2.5-v0.2) | 3.8B | 128 | 0.5535 | - |
+| [VAGOsolutions/SauerkrautLM-ColQwen3-1.7b-Turbo-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColQwen3-1.7b-Turbo-v0.1) | 1.76B | 128 | 0.5216 | - |
+| [vidore/colpali-v1.3-hf](https://huggingface.co/vidore/colpali-v1.3-hf) | 2.9B | 128 | 0.4886 | - |
+| [vidore/colqwen2-v1.0](https://huggingface.co/vidore/colqwen2-v1.0) | 2.2B | 128 | 0.4886 | - |
+| [vidore/colpali-v1.3](https://huggingface.co/vidore/colpali-v1.3) | 2.9B | 128 | 0.4882 | - |
+| [vidore/colpali-v1.2](https://huggingface.co/vidore/colpali-v1.2) | 2.9B | 128 | 0.4821 | - |
+| [vidore/colqwen2-v0.1](https://huggingface.co/vidore/colqwen2-v0.1) | 2.2B | 128 | 0.4695 | - |
+| [vidore/colpali-v1.1](https://huggingface.co/vidore/colpali-v1.1) | 2.9B | 128 | 0.4689 | - |
+| [VAGOsolutions/SauerkrautLM-ColLFM2-450M-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColLFM2-450M-v0.1) | 451M | 128 | 0.4685 | - |
+| [vidore/colpali](https://huggingface.co/vidore/colpali) | 2.9B | 128 | 0.4674 | - |
+| [vidore/colsmolvlm-v0.1](https://huggingface.co/vidore/colsmolvlm-v0.1) | 2.1B | 128 | 0.4583 | - |
+| [vidore/colpali-hard-v1.1](https://huggingface.co/vidore/colpali-hard-v1.1) | 2.9B | 128 | 0.4448 | - |
+| [VAGOsolutions/SauerkrautLM-ColMinistral3-3b-v0.1](https://huggingface.co/VAGOsolutions/SauerkrautLM-ColMinistral3-3b-v0.1) | 4.25B | 128 | 0.4309 | - |
+| [vidore/colSmol-500M](https://huggingface.co/vidore/colSmol-500M) | 507M | 128 | 0.4091 | - |
+| [vidore/colSmol-256M](https://huggingface.co/vidore/colSmol-256M) | 256M | 128 | 0.3483 | - |
+| [ModernVBERT/colmodernvbert](https://huggingface.co/ModernVBERT/colmodernvbert) | 252M | 128 | 0.3353 | - |
 | [vidore/colpali-v1.2-hf](https://huggingface.co/vidore/colpali-v1.2-hf) | 2.9B | 128 | - | - |
 | [vidore/colqwen2-v1.0-hf](https://huggingface.co/vidore/colqwen2-v1.0-hf) | 2.2B | 128 | - | - |
 
