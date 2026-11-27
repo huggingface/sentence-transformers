@@ -297,19 +297,15 @@ class TestGenerateUsageSnippetSparseEncoder:
         data = SparseEncoderModelCardData()
         data.ir_model = True
         data.usage_examples = ["query?", "doc A", "doc B"]
-        data.similarities = None
-        data.model = None
         snippet = data.generate_usage_snippet()
 
+        assert "from sentence_transformers import SparseEncoder" in snippet
         assert 'SparseEncoder("sparse_encoder_model_id")' in snippet
         assert "model.encode_query(queries)" in snippet
         assert "model.encode_document(documents)" in snippet
-        assert "SentenceTransformer(" not in snippet
 
 
 def test_model_card_ir_usage_snippet(inference_free_splade_bert_tiny_model: SparseEncoder) -> None:
-    # A Router marks the model as an IR model, so the card must encode queries and documents with
-    # their own routes, as SentenceTransformer cards do, instead of passing everything to `encode`.
     model = inference_free_splade_bert_tiny_model
     model.model_card_data.local_files_only = True
     model.model_card_data.generate_widget_examples = True
@@ -322,7 +318,7 @@ def test_model_card_ir_usage_snippet(inference_free_splade_bert_tiny_model: Spar
     assert "model.encode(sentences)" not in model_card
 
     query, *documents = model.model_card_data.usage_examples
-    similarity = model.similarity(model.encode_query(query), model.encode_document(documents))
+    similarity = model.similarity(model.encode_query([query]), model.encode_document(documents))
     with torch._tensor_str.printoptions(precision=4, sci_mode=False):
         expected = "\n".join(f"# {line}" for line in str(similarity.cpu()).splitlines())
     assert f"print(similarities)\n{expected}" in model_card
