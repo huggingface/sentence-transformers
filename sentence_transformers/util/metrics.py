@@ -34,6 +34,53 @@ def _reciprocal_rank(y_true: list[int] | np.ndarray, y_score: list[float] | np.n
     return rr_score
 
 
+def _average_precision(y_true: list[int] | np.ndarray, y_score: list[float] | np.ndarray) -> float:
+    """Compute average precision for one query, averaged over all orderings of tied scores.
+
+    Without ties this matches :func:`sklearn.metrics.average_precision_score`. With ties, sklearn credits
+    every relevant document in a tied group with the precision at the end of the group, which can be
+    lower or higher than the precision of any actual ordering.
+
+    Args:
+        y_true: Binary relevance labels for the documents.
+        y_score: Predicted scores for the documents. Higher scores rank first.
+
+    Returns:
+        The expected average precision, or 0.0 if there are no relevant documents.
+
+    Raises:
+        ValueError: If ``y_score`` contains NaN, like :func:`sklearn.metrics.average_precision_score`.
+    """
+    scores = np.asarray(y_score, dtype=float)
+    # np.unique sorts NaN last, so without this check a NaN score would be ranked first
+    if np.isnan(scores).any():
+        raise ValueError("Input contains NaN.")
+    relevant = np.asarray(y_true, dtype=bool)
+    num_relevant = np.count_nonzero(relevant)
+    if num_relevant == 0:
+        return 0.0
+
+    # Walk the groups of tied scores from best to worst. Within a group of `size` documents holding
+    # `positives` relevant ones, each position is relevant with probability positives / size, and given
+    # that, (positives - 1) / (size - 1) of the positions before it are relevant on average.
+    _, group_ids = np.unique(scores, return_inverse=True)
+    group_ids = group_ids.ravel()
+    group_sizes = np.bincount(group_ids)[::-1]
+    group_positives = np.bincount(group_ids, weights=relevant)[::-1]
+
+    precision_sum = 0.0
+    ranked = 0
+    hits = 0.0
+    for size, positives in zip(group_sizes, group_positives):
+        if positives:
+            positions = np.arange(1, size + 1)
+            earlier_hits = (positions - 1) * (positives - 1) / (size - 1) if size > 1 else 0.0
+            precision_sum += positives / size * np.sum((hits + 1 + earlier_hits) / (ranked + positions))
+        ranked += size
+        hits += positives
+    return float(precision_sum / num_relevant)
+
+
 def _binary_ndcg(
     y_true: list[int] | np.ndarray,
     y_score: list[float] | np.ndarray,

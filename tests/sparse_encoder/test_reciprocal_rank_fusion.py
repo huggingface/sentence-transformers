@@ -124,12 +124,13 @@ def test_complementary_retrievers() -> None:
 
     assert results["dense_map"] == pytest.approx(0.5)
     assert results["sparse_map"] == pytest.approx(0.5)
-    assert results["map"] == pytest.approx(2 / 3)
+    # n1 is fused first, then the tied p1 and p2 at ranks 2 and 3 in either order
+    assert results["map"] == pytest.approx((1 / 2 + 2 / 3) / 2)
     assert results["mrr@10"] == 0.5
     assert results["ndcg@10"] == pytest.approx((1 / log2(3) + 0.5) / (1 + 1 / log2(3)))
 
 
-@pytest.mark.parametrize("num_positives, expected_ap", [(None, 0.5), (2, 0.25)])
+@pytest.mark.parametrize("num_positives, expected_ap", [(None, 0.75), (2, 0.375)])
 def test_tied_scores(num_positives: int | None, expected_ap: float) -> None:
     evaluator = ReciprocalRankFusionEvaluator([], [], at_k=1, write_csv=False)
     mrr, ndcg, ap = evaluator.compute_metrics([1, 0], [0.0, 0.0], num_positives)
@@ -150,7 +151,8 @@ def test_rrf_ties_average_metrics(swap_retrievers: bool, at_k: int) -> None:
 
     assert results[f"mrr@{at_k}"] == pytest.approx(0.5 if at_k == 1 else 0.75)
     assert results[f"ndcg@{at_k}"] == pytest.approx(0.5 if at_k == 1 else (1 + 1 / log2(3)) / 2)
-    assert results["map"] == pytest.approx(0.5)
+    # A single positive's AP is its reciprocal rank over the full ranking
+    assert results["map"] == pytest.approx(0.75)
 
 
 @pytest.mark.parametrize("documents", [["p1"], ["n1", "p1"]])

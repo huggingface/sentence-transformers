@@ -159,4 +159,8 @@ def test_reranking_evaluator_mrr(
         write_csv=False,
         use_batched_encoding=use_batched_encoding,
     )
-    assert evaluator(model)[f"mrr@{at_k}"] == pytest.approx(expected_mrr)
+    results = evaluator(model)
+    assert results[f"mrr@{at_k}"] == pytest.approx(expected_mrr)
+    if len(positive) == 1 and len(positive) + len(negative) <= at_k:
+        # A single positive's average precision is its reciprocal rank, also when its score is tied
+        assert results["map"] == pytest.approx(expected_mrr)
