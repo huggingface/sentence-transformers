@@ -796,6 +796,42 @@ def test_explicit_activation_overrides_unconstructible_saved_activation(
     torch.testing.assert_close(restored.predict(inputs, convert_to_tensor=True), expected)
 
 
+def test_saved_activation_keeps_constructor_arguments(reranker_bert_tiny_model: CrossEncoder, tmp_path: Path):
+    model = reranker_bert_tiny_model
+    model.activation_fn = torch.nn.Threshold(0.0, -0.5)
+    inputs = [["Hello there!", "Hello, World!"], ["A cat is sleeping.", "An animal is resting."]]
+    expected = model.predict(inputs, convert_to_tensor=True)
+    model.save_pretrained(tmp_path)
+
+    restored = CrossEncoder(str(tmp_path), local_files_only=True)
+
+    assert repr(restored.activation_fn) == repr(model.activation_fn)
+    torch.testing.assert_close(restored.predict(inputs, convert_to_tensor=True), expected)
+
+
+def test_save_omits_default_activation_arguments(reranker_bert_tiny_model: CrossEncoder, tmp_path: Path):
+    reranker_bert_tiny_model.save_pretrained(tmp_path)
+    config = json.loads((tmp_path / "config_sentence_transformers.json").read_text(encoding="utf-8"))
+    assert "activation_fn_kwargs" not in config
+
+
+def test_saved_activation_arguments_only_reach_module_classes(reranker_bert_tiny_model: CrossEncoder, tmp_path: Path):
+    """Without trust_remote_code, saved arguments must not be passed to a torch function that isn't an
+    nn.Module class, e.g. ``torch.save`` writing a file chosen by the config."""
+    model_dir = tmp_path / "model"
+    reranker_bert_tiny_model.save_pretrained(model_dir)
+    config_path = model_dir / "config_sentence_transformers.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    target = tmp_path / "written_by_config.bin"
+    config["activation_fn"] = "torch.save"
+    config["activation_fn_kwargs"] = {"obj": "x", "f": str(target)}
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    with pytest.raises(TypeError):
+        CrossEncoder(str(model_dir), local_files_only=True)
+    assert not target.exists()
+
+
 @pytest.mark.parametrize(
     ["num_labels", "activation_fn", "expected_activation_fn"],
     [

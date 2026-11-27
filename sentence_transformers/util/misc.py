@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import functools
 import importlib
+import inspect
 import logging
 import os
 import warnings
@@ -56,6 +57,43 @@ def fullname(obj) -> str:
     if module is None or module == str.__class__.__module__:
         return obj.__name__  # Avoid reporting __builtin__
     return module + "." + obj.__name__
+
+
+def _non_default_init_kwargs(obj: Any) -> dict[str, Any]:
+    """Best-effort recovery of the constructor arguments of a PyTorch object that differ from their defaults.
+
+    Each keyword parameter of ``type(obj)`` is read back from the attribute of the same name, which is how
+    the ``torch.nn`` activations store them (e.g. ``nn.LeakyReLU(0.2).negative_slope``), so that
+    ``type(obj)(**kwargs)`` rebuilds ``obj`` from a config file. Only classes defined under ``torch.`` are
+    inspected, because other classes may give a same-named attribute a different meaning. Arguments that
+    aren't JSON scalars (``None``, bool, int, float or str) are skipped.
+
+    Args:
+        obj: The instance to inspect, e.g. an activation module.
+
+    Returns:
+        dict[str, Any]: The recoverable arguments that differ from their defaults. Empty for non-``torch``
+        classes, classes themselves, functions, ``functools.partial`` objects and signatures that can't be
+        inspected.
+    """
+    if isclass(obj) or inspect.isroutine(obj) or isinstance(obj, functools.partial):
+        return {}
+    if not type(obj).__module__.startswith("torch."):
+        return {}
+    try:
+        parameters = inspect.signature(type(obj)).parameters.values()
+    except (TypeError, ValueError):
+        return {}
+    kwargs = {}
+    for param in parameters:
+        if param.kind not in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY) or not hasattr(obj, param.name):
+            continue
+        value = getattr(obj, param.name)
+        if value is not None and not isinstance(value, (bool, int, float, str)):
+            continue
+        if param.default is param.empty or value != param.default:
+            kwargs[param.name] = value
+    return kwargs
 
 
 def similarity_fct_name(similarity_fct: Callable) -> str:

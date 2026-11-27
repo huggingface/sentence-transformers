@@ -29,7 +29,7 @@ from sentence_transformers.util.decorators import (
     cross_encoder_init_args_decorator,
     cross_encoder_predict_rank_args_decorator,
 )
-from sentence_transformers.util.misc import _to_list
+from sentence_transformers.util.misc import _non_default_init_kwargs, _to_list
 
 if TYPE_CHECKING:
     from transformers import KernelConfig
@@ -367,10 +367,25 @@ class CrossEncoder(BaseModel, FitMixin):
         )
         return [transformer_model], {}
 
-    def _resolve_activation_fn(self, activation_fn_path: str) -> Callable | None:
+    def _resolve_activation_fn(
+        self, activation_fn_path: str, activation_fn_kwargs: dict[str, Any] | None = None
+    ) -> Callable | None:
         """Instantiate an activation function from a dotted path string, respecting trust_remote_code."""
         if self.trust_remote_code or activation_fn_path.startswith("torch."):
-            return import_from_string(activation_fn_path)()
+            activation_cls = import_from_string(activation_fn_path)
+            # Saved arguments are only passed to torch.nn.Module classes unless the configuration is trusted,
+            # so a config can't call another torch function (e.g. one that writes or loads files) with them.
+            if (
+                activation_fn_kwargs
+                and not self.trust_remote_code
+                and not (inspect.isclass(activation_cls) and issubclass(activation_cls, nn.Module))
+            ):
+                logger.warning(
+                    f"Ignoring the saved arguments for activation function '{activation_fn_path}': it is not a "
+                    "torch.nn.Module class. Please load the CrossEncoder with `trust_remote_code=True` to allow them."
+                )
+                activation_fn_kwargs = None
+            return activation_cls(**(activation_fn_kwargs or {}))
         logger.warning(
             f"Activation function path '{activation_fn_path}' is not trusted, using default activation function instead. "
             "Please load the CrossEncoder with `trust_remote_code=True` to allow loading custom activation "
@@ -889,6 +904,9 @@ class CrossEncoder(BaseModel, FitMixin):
         config = super()._get_model_config() | {
             "activation_fn": fullname(self.activation_fn),
         }
+        activation_fn_kwargs = _non_default_init_kwargs(self.activation_fn)
+        if activation_fn_kwargs:
+            config["activation_fn_kwargs"] = activation_fn_kwargs
         if self.keep_in_fp32_modules:
             config["keep_in_fp32_modules"] = self.keep_in_fp32_modules
         return config
@@ -900,7 +918,7 @@ class CrossEncoder(BaseModel, FitMixin):
         if self.activation_fn is None and "activation_fn" in model_config:
             activation_fn_path = model_config["activation_fn"]
             if activation_fn_path is not None:
-                resolved = self._resolve_activation_fn(activation_fn_path)
+                resolved = self._resolve_activation_fn(activation_fn_path, model_config.get("activation_fn_kwargs"))
                 if resolved is not None:
                     self.activation_fn = resolved
 
