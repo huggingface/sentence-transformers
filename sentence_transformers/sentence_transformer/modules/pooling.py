@@ -201,7 +201,7 @@ class Pooling(Module):
                     output_vectors.append(torch.gather(token_embeddings, 1, gather_indices).squeeze(1))
 
             elif mode == "max":
-                mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
+                mask = attention_mask.unsqueeze(-1).to(token_embeddings.dtype)
                 output_vectors.append(token_embeddings.masked_fill(mask == 0, float("-inf")).max(dim=1).values)
 
             elif mode in ("mean", "mean_sqrt_len_tokens"):
@@ -242,15 +242,17 @@ class Pooling(Module):
                 output_vectors.append((sum_embeddings / torch.clamp(sum_mask, min=1e-9)).to(output_dtype))
 
             elif mode == "lasttoken":
-                bs, seq_len, hidden_dim = token_embeddings.shape
+                _, seq_len, hidden_dim = token_embeddings.shape
                 if torch.jit.is_tracing():
                     # Avoid tracing argmax with int64: https://github.com/microsoft/onnxruntime/issues/10068
                     attention_mask = attention_mask.to(torch.int32)
                 values, indices = attention_mask.flip(1).max(1)
                 indices = torch.where(values == 0, seq_len - 1, indices)
-                gather_indices = (seq_len - indices - 1).unsqueeze(-1).unsqueeze(1).expand(-1, 1, hidden_dim)
-                mask = attention_mask.unsqueeze(-1).expand_as(token_embeddings).to(token_embeddings.dtype)
-                output_vectors.append(torch.gather(token_embeddings * mask, 1, gather_indices).squeeze(dim=1))
+                last_indices = (seq_len - indices - 1).unsqueeze(1)
+                gather_indices = last_indices.unsqueeze(-1).expand(-1, 1, hidden_dim)
+                selected = token_embeddings.gather(1, gather_indices).squeeze(1)
+                mask = attention_mask.gather(1, last_indices).to(token_embeddings.dtype)
+                output_vectors.append(selected * mask)
 
         return output_vectors
 

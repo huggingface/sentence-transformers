@@ -381,6 +381,32 @@ def test_pooling_lasttoken_all_padding_returns_zero_vector() -> None:
     assert torch.all(sentence_embedding == 0)
 
 
+@pytest.mark.parametrize("pooling_mode", ["max", "lasttoken"])
+def test_padded_pooling_preserves_mask_cast_and_gradients(pooling_mode: str) -> None:
+    pooling = Pooling(embedding_dimension=2, pooling_mode=pooling_mode)
+    token_embeddings = torch.tensor(
+        [[[9.0, 9.0], [1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0], [9.0, 10.0]]],
+        dtype=torch.float16,
+        requires_grad=True,
+    )
+    attention_mask = torch.tensor([[1e-20, 0.5, 0.5], [0.0, 0.0, 0.0]])
+    output = pooling({"token_embeddings": token_embeddings, "attention_mask": attention_mask})["sentence_embedding"]
+
+    # The first mask weight rounds to zero when cast to the embedding dtype.
+    if pooling_mode == "max":
+        expected = [[3.0, 4.0], [float("-inf"), float("-inf")]]
+        expected_gradient = 1.0
+    else:
+        expected = [[1.5, 2.0], [0.0, 0.0]]
+        expected_gradient = 0.5
+    torch.testing.assert_close(output, token_embeddings.new_tensor(expected))
+
+    (gradient,) = torch.autograd.grad(output[0].sum(), token_embeddings)
+    expected_gradient_tensor = torch.zeros_like(token_embeddings)
+    expected_gradient_tensor[0, 2] = expected_gradient
+    torch.testing.assert_close(gradient, expected_gradient_tensor)
+
+
 @pytest.mark.parametrize("padding_side", ["right", "left"])
 @pytest.mark.parametrize(
     "prompt_length_value",
