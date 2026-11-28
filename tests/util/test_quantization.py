@@ -123,6 +123,27 @@ def test_quantize_clips_out_of_range_values(precision: str, shape: tuple[int, ..
 
 
 @pytest.mark.parametrize("precision", ["int8", "uint8"])
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+def test_scalar_quantize_preserves_bucket_edges_on_read_only_input(precision: str, dtype) -> None:
+    embeddings = np.array(
+        [[-1, 9], [0, 10], [np.nextafter(dtype(1), dtype(0)), 10.5], [1, 11], [255, 265], [256, 266]],
+        dtype=dtype,
+    )[::-1]
+    ranges = np.array([[0, 10], [255, 265]], dtype=np.float32)
+    embeddings.setflags(write=False)
+    ranges.setflags(write=False)
+
+    result = quantize_embeddings(embeddings, precision, ranges=ranges)
+    expected = np.array([[0, 0], [0, 0], [0, 0], [1, 1], [255, 255], [255, 255]])[::-1]
+    if precision == "int8":
+        expected = (expected - 128).astype(np.int8)
+    else:
+        expected = expected.astype(np.uint8)
+    np.testing.assert_array_equal(result, expected)
+    assert result.dtype == expected.dtype
+
+
+@pytest.mark.parametrize("precision", ["int8", "uint8"])
 @pytest.mark.parametrize("input_type", ["vector", "matrix", "multi_vector"])
 def test_scalar_quantize_single_embedding_without_calibration_raises(precision: str, input_type: str) -> None:
     embeddings = np.array([[1, 2, 3]], dtype=np.float32)
