@@ -104,7 +104,10 @@ class StaticEmbedding(InputModule):
         self.embedding_dim = self.embedding.embedding_dim
 
         self.tokenizer: Tokenizer = tokenizer
+        # Every token is embedded (max_seq_length is inf), so drop any padding or truncation that the
+        # tokenizer was loaded with, e.g. from a tokenizer.json that truncates to the original model's max length
         self.tokenizer.no_padding()
+        self.tokenizer.no_truncation()
 
         # For the model card
         self.base_model = kwargs.get("base_model", None)

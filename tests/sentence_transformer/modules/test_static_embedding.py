@@ -56,6 +56,20 @@ def test_tokenize_after_transformers_tokenizer_call(tokenizer: Tokenizer, tokeni
     assert torch.equal(tokens["offsets"], expected["offsets"])
 
 
+@pytest.mark.parametrize("as_transformers_tokenizer", [False, True])
+def test_tokenize_ignores_tokenizer_truncation(tokenizer: Tokenizer, as_transformers_tokenizer: bool) -> None:
+    """A tokenizer loaded with truncation enabled (e.g. from its tokenizer.json) doesn't truncate the inputs"""
+    text = "This sentence is a bit longer than the first one."
+    expected_ids = tokenizer.encode(text, add_special_tokens=False).ids
+    tokenizer.enable_truncation(max_length=4)
+    if as_transformers_tokenizer:
+        tokenizer = PreTrainedTokenizerFast(tokenizer_object=tokenizer, pad_token="[PAD]")
+    static_embedding = StaticEmbedding(tokenizer, embedding_dim=32)
+    tokens = static_embedding.preprocess([text])
+    assert tokens["input_ids"].tolist() == expected_ids
+    assert len(expected_ids) > 4
+
+
 def test_forward(static_embedding: StaticEmbedding) -> None:
     texts = ["Hello world!", "How are you?"]
     tokens = static_embedding.preprocess(texts)
