@@ -1431,6 +1431,11 @@ class SparseEncoder(BaseModel):
         embeddings = embeddings.coalesce().cpu()
         indices = embeddings.indices()
         values = embeddings.values()
+        # Explicit zeros and duplicate entries that cancel can survive coalescing.
+        nonzero = values != 0
+        if not nonzero.all():
+            indices = indices[:, nonzero]
+            values = values[nonzero]
 
         if values.numel() == 0:
             results: list[list[tuple[str, float]]] = [[] for _ in range(embeddings.size(0))]
