@@ -55,6 +55,16 @@ In short, **DDP is generally recommended**. You can use DDP by running your norm
 
    An explicit ``device`` or ``pool`` keeps its usual behavior. Calls whose inputs or arguments cannot be serialized between processes run on process zero. Predictions are gathered through CPU memory, so the speedup depends on inference cost and communication overhead. This does not add evaluator support for FSDP or DeepSpeed.
 
+Task-dependent batch sizes
+--------------------------
+
+For opt-in same-task DDP microsteps with a different per-rank batch size for each
+training dataset, see `synchronized task-dependent training batches
+<../../package_reference/sentence_transformer/training_args.html#synchronized-task-dependent-training-batches>`_.
+This restricted mode requires nullable variable-batch metadata support in Accelerate,
+ordinary random sampling, global dropping of incomplete batches, and a fixed world
+size. It does not provide ``NO_DUPLICATES`` sampling or change loss objectives.
+
 Comparison
 ----------
 
