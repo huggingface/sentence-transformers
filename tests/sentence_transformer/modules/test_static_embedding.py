@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import math
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -70,6 +70,49 @@ def test_save_and_load(tmp_path: Path, static_embedding: StaticEmbedding) -> Non
 
     loaded_model = StaticEmbedding.load(str(save_dir))
     assert loaded_model.embedding.weight.shape == static_embedding.embedding.weight.shape
+
+
+def test_max_seq_length_truncates(tokenizer: Tokenizer) -> None:
+    static_embedding = StaticEmbedding(tokenizer, embedding_dim=8, max_seq_length=2)
+    texts = ["This sentence is a bit longer than two tokens.", "Hi"]
+    expected_ids = [tokenizer.encode(text, add_special_tokens=False).ids[:2] for text in texts]
+
+    tokens = static_embedding.preprocess(texts)
+    assert tokens["input_ids"].tolist() == expected_ids[0] + expected_ids[1]
+    assert tokens["offsets"].tolist() == [0, len(expected_ids[0])]
+
+    static_embedding.max_seq_length = 4
+    tokens = static_embedding.preprocess(texts)
+    assert tokens["offsets"].tolist() == [0, 4]
+
+
+def test_max_seq_length_save_and_load(tmp_path: Path, tokenizer: Tokenizer) -> None:
+    static_embedding = StaticEmbedding(tokenizer, embedding_dim=8, max_seq_length=16)
+    static_embedding.save(str(tmp_path))
+
+    assert StaticEmbedding.load(str(tmp_path)).max_seq_length == 16
+
+
+@pytest.mark.parametrize(
+    ("config", "expected_max_seq_length"),
+    [
+        ({"max_seq_length": 16}, 16),
+        ({"max_length": 512}, 512),
+        ({"max_seq_length": 16, "max_length": 512}, 16),
+        ({"max_length": None}, 131072),
+        ({"seq_length": 1000000}, 131072),
+        (None, 131072),
+    ],
+)
+def test_load_max_seq_length_from_config(
+    tmp_path: Path, tokenizer: Tokenizer, config: dict[str, Any] | None, expected_max_seq_length: int
+) -> None:
+    tokenizer.save(str(tmp_path / "tokenizer.json"))
+    save_file({"embeddings": torch.randn(tokenizer.get_vocab_size(), 8)}, str(tmp_path / "model.safetensors"))
+    if config is not None:
+        (tmp_path / "config.json").write_text(json.dumps(config))
+
+    assert StaticEmbedding.load(str(tmp_path)).max_seq_length == expected_max_seq_length
 
 
 @skip_if_transformers_5_or_higher()  # Model2vec distillation is not yet compatible with transformers v5+
@@ -234,7 +277,7 @@ def test_unsupported_modality(static_embedding: StaticEmbedding) -> None:
 def test_loading_model2vec() -> None:
     model = SentenceTransformer("minishlab/potion-base-8M")
     assert model.get_embedding_dimension() == 256
-    assert model.max_seq_length == math.inf
+    assert model.max_seq_length == 131072
 
     test_sentences = ["It's so sunny outside!", "The sun is shining outside!"]
     embeddings = model.encode(test_sentences)
