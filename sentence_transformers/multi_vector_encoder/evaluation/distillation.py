@@ -5,8 +5,9 @@ import math
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import torch
-from scipy.stats import spearmanr
+from scipy.stats import rankdata, spearmanr
 
 from sentence_transformers.base.evaluation.evaluator import BaseEvaluator
 from sentence_transformers.base.modality import is_message_dict
@@ -20,6 +21,33 @@ if TYPE_CHECKING:
     from sentence_transformers.multi_vector_encoder.model import MultiVectorEncoder
 
 logger = logging.getLogger(__name__)
+
+
+def _mean_row_spearman(teacher_scores: np.ndarray, student_scores: np.ndarray) -> float:
+    """Average Spearman across candidate sets, skipping rows with undefined correlation."""
+    valid = ~(np.isnan(teacher_scores).any(axis=1) | np.isnan(student_scores).any(axis=1))
+    if not valid.any():
+        return 0.0
+
+    def rank_rows(scores: np.ndarray) -> np.ndarray:
+        try:
+            return rankdata(scores, axis=1)
+        except TypeError:
+            # SciPy versions before 1.5 do not support the axis argument.
+            return np.apply_along_axis(rankdata, 1, scores)
+
+    # Average ranks for ties still have this mean; correlate the centered ranks for each query.
+    rank_mean = (teacher_scores.shape[1] + 1) / 2
+    teacher_ranks = rank_rows(teacher_scores[valid]) - rank_mean
+    student_ranks = rank_rows(student_scores[valid]) - rank_mean
+    covariance = np.einsum("ij,ij->i", teacher_ranks, student_ranks)
+    denominator = np.linalg.norm(teacher_ranks, axis=1) * np.linalg.norm(student_ranks, axis=1)
+    nonconstant = denominator > 0
+    if not nonconstant.any():
+        return 0.0
+
+    correlations = covariance[nonconstant] / denominator[nonconstant]
+    return float(np.clip(correlations, -1, 1).mean())
 
 
 class MultiVectorDistillationEvaluator(BaseEvaluator):
@@ -233,12 +261,7 @@ class MultiVectorDistillationEvaluator(BaseEvaluator):
         kl = kl.item() * self.student_temperature**2
         if self.nested_documents:
             # Rank within each query, matching the per-query KL above (see the class docstring).
-            per_query = []
-            for teacher_row, student_row in zip(self.scores.numpy(), student_scores.numpy()):
-                correlation, _ = spearmanr(teacher_row, student_row)
-                if correlation == correlation:  # NaN if either row is constant, skip those queries
-                    per_query.append(correlation)
-            spearman = sum(per_query) / len(per_query) if per_query else 0.0
+            spearman = _mean_row_spearman(self.scores.numpy(), student_scores.numpy())
         else:
             spearman, _ = spearmanr(self.scores.numpy(), student_scores.numpy())
             if spearman != spearman:  # NaN if all scores are constant
