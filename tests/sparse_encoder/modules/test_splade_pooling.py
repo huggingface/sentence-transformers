@@ -50,3 +50,35 @@ def test_flattened_forward_backward() -> None:
     out["sentence_embedding"].sum().backward()
     assert flat_logits.grad is not None
     assert flat_logits.grad.shape == flat_logits.shape
+
+
+@pytest.mark.parametrize("activation_function", ["relu", "log1p_relu"])
+@pytest.mark.parametrize("input_layout", ["padded", "chunked", "flattened"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_max_pooling_inference_matches_original_order(activation_function, input_layout, dtype) -> None:
+    lengths = torch.tensor([4, 2, 0])
+    logits = torch.randn(3, 4, 11, generator=torch.Generator().manual_seed(19), dtype=dtype)
+    logits[:, :, 0] = -3
+    logits[1, 3, 1] = 500  # A high logit on padding must not affect the pooled result.
+    logits[1, 0, 2] = float("nan")
+    mask = torch.arange(4).unsqueeze(0) < lengths.unsqueeze(1)
+    if input_layout == "flattened":
+        features = {
+            "token_embeddings": logits[mask].unsqueeze(0),
+            "cu_seq_lens_q": torch.tensor([0, 4, 6]),
+        }
+    else:
+        features = {"token_embeddings": logits, "attention_mask": mask}
+    pooling = SpladePooling(
+        activation_function=activation_function, chunk_size=2 if input_layout == "chunked" else None
+    )
+    pooling.eval()
+    original_logits = features["token_embeddings"].clone()
+
+    with torch.enable_grad():  # This path applies activation before max pooling.
+        expected = pooling(dict(features))["sentence_embedding"]
+    with torch.inference_mode():
+        actual = pooling(dict(features))["sentence_embedding"]
+
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0, equal_nan=True)
+    torch.testing.assert_close(features["token_embeddings"], original_logits, rtol=0, atol=0, equal_nan=True)

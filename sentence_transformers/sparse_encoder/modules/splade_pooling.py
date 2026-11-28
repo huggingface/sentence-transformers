@@ -76,12 +76,27 @@ class SpladePooling(Module):
         Returns:
             Dictionary containing SPLADE pooled embeddings
         """
+        # ReLU and log1p are monotonic, so max pooling can precede activation at inference.
+        # Keep the original order with gradients enabled: rounding can create activation ties.
+        pool_raw_logits = self.pooling_strategy == "max" and not self.training and not torch.is_grad_enabled()
         if "cu_seq_lens_q" in features:
             # FA2 input unpadding kept the MLM logits flat (`(1, sum_lens, vocab)`). Pool each
             # sequence's segment directly on the flat tensor: re-padding at vocab width would be
             # the expensive part, and the flat segments contain no padding to mask out.
-            return self._forward_flattened(features)
+            pooled_scores = self._pool_flattened(features, pool_raw_logits)
+        else:
+            pooled_scores = self._pool_padded(features, pool_raw_logits)
 
+        if pool_raw_logits:
+            pooled_scores.relu_().log1p_()
+            if self.activation_function == "log1p_relu":
+                pooled_scores.log1p_()
+        if self.embedding_dimension is None:
+            self.embedding_dimension = pooled_scores.shape[1]
+        features["sentence_embedding"] = pooled_scores
+        return features
+
+    def _pool_padded(self, features: dict[str, torch.Tensor], pool_raw_logits: bool) -> torch.Tensor:
         mlm_logits = features["token_embeddings"]
         attention_mask = features["attention_mask"]  # Shape: [batch_size, seq_length]
 
@@ -106,6 +121,10 @@ class SpladePooling(Module):
                 current_chunk_mask = attention_mask_expanded[:, i : i + chunk_size, :]
 
                 masked_current_chunk_logits = current_chunk_logits * current_chunk_mask
+
+                if pool_raw_logits:
+                    pooled_scores = torch.maximum(pooled_scores, masked_current_chunk_logits.amax(dim=1))
+                    continue
 
                 current_chunk_transformed = masked_current_chunk_logits.relu_()
                 if not self.training:
@@ -135,12 +154,9 @@ class SpladePooling(Module):
                     )
                 raise e
 
-        if self.embedding_dimension is None:
-            self.embedding_dimension = pooled_scores.shape[1]
-        features["sentence_embedding"] = pooled_scores
-        return features
+        return pooled_scores
 
-    def _forward_flattened(self, features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def _pool_flattened(self, features: dict[str, torch.Tensor], pool_raw_logits: bool) -> torch.Tensor:
         flat_logits = features["token_embeddings"].squeeze(0)  # (total_tokens, vocab_size)
         cu_seq_lens = features["cu_seq_lens_q"].tolist()
 
@@ -149,17 +165,16 @@ class SpladePooling(Module):
         reduce = torch.amax if self.pooling_strategy == "max" else torch.sum
         pooled = []
         for start, end in zip(cu_seq_lens[:-1], cu_seq_lens[1:]):
-            transformed = flat_logits[start:end].relu()
+            segment = flat_logits[start:end]
+            if pool_raw_logits:
+                pooled.append(reduce(segment, dim=0))
+                continue
+            transformed = segment.relu()
             transformed = transformed.log1p() if self.training else transformed.log1p_()
             if self.activation_function == "log1p_relu":
                 transformed = transformed.log1p() if self.training else transformed.log1p_()
             pooled.append(reduce(transformed, dim=0))
-        pooled_scores = torch.stack(pooled)
-
-        if self.embedding_dimension is None:
-            self.embedding_dimension = pooled_scores.shape[1]
-        features["sentence_embedding"] = pooled_scores
-        return features
+        return torch.stack(pooled)
 
     def save(self, output_path: str, *args, safe_serialization: bool = True, **kwargs) -> None:
         self.save_config(output_path)
