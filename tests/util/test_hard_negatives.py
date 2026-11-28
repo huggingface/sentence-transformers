@@ -2056,18 +2056,35 @@ def test_one_column_dataset_raises_value_error(queries) -> None:
         mine_hard_negatives(dataset=dataset, model=SimpleNamespace(), verbose=False)
 
 
-def test_default_column_selection_allows_extra_columns() -> None:
-    dataset = Dataset.from_dict({"query": ["q"], "positive": ["p"], "metadata": [1]})
+@pytest.mark.parametrize("explicit_columns", [False, True], ids=["default", "explicit"])
+def test_mining_converts_only_pair_columns(monkeypatch: pytest.MonkeyPatch, explicit_columns: bool) -> None:
+    pairs = {"query": ["q", "q"], "positive": ["p", "n_more_similar"]}
+    extra = {"metadata": [{"tokens": [1, 2]}, {"tokens": [3]}]}
+    columns = {**extra, **pairs} if explicit_columns else {**pairs, **extra}
+    dataset = Dataset.from_dict(columns).select([1, 0])
+    kwargs = {"anchor_column_name": "query", "positive_column_name": "positive"} if explicit_columns else {}
 
+    to_pandas = Dataset.to_pandas
+
+    def to_pair_dataframe(self, *args, **kwargs):
+        assert set(self.column_names) == {"query", "positive"}
+        return to_pandas(self, *args, **kwargs)
+
+    monkeypatch.setattr(Dataset, "to_pandas", to_pair_dataframe)
     result = mine_hard_negatives(
         dataset=dataset,
         model=ControlledNegativeScoreModel(),
         corpus=["p", "n_more_similar", "n_far"],
         num_negatives=1,
         verbose=False,
+        **kwargs,
     )
 
-    assert result.to_dict() == {"query": ["q"], "positive": ["p"], "negative": ["n_more_similar"]}
+    assert result.to_dict() == {
+        "query": ["q", "q"],
+        "positive": ["n_more_similar", "p"],
+        "negative": ["n_far", "n_far"],
+    }
 
 
 @pytest.mark.parametrize(
