@@ -154,3 +154,13 @@ def test_duplicates_dict_accepts_plain_dict(add_transitive_closure: bool) -> Non
     )(model)
     assert metrics == pytest.approx(expected)
     assert duplicates == {"a": {"b": True}, "b": {"a": True}}
+
+
+def test_worker_encoding_after_paraphrase_evaluation() -> None:
+    model = SentenceTransformer(modules=[BoW(["red", "blue"])], device="cpu")
+    sentences = ["red", "red", "blue"]
+    evaluator = ParaphraseMiningEvaluator(dict(enumerate(sentences)), duplicates_list=[(0, 1)])
+    evaluator(model)
+
+    expected = model.encode(sentences)
+    np.testing.assert_array_equal(model.encode(sentences, device=["cpu"]), expected)
