@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import inspect
 import logging
-import math
 import os
 from pathlib import Path
 from typing import Any
@@ -25,14 +24,19 @@ from sentence_transformers.base.modules.input_module import InputModule
 logger = logging.getLogger(__name__)
 
 
+_DEFAULT_MAX_SEQ_LENGTH = 131072
+
+
 class StaticEmbedding(InputModule):
     modalities: list[str] = ["text"]
+    config_keys: list[str] = ["max_seq_length"]
 
     def __init__(
         self,
         tokenizer: Tokenizer | PreTrainedTokenizerFast,
         embedding_weights: np.ndarray | torch.Tensor | None = None,
         embedding_dim: int | None = None,
+        max_seq_length: int = _DEFAULT_MAX_SEQ_LENGTH,
         **kwargs,
     ) -> None:
         """
@@ -46,6 +50,8 @@ class StaticEmbedding(InputModule):
                 Defaults to None.
             embedding_dim (int | None, optional): Dimension of the embeddings. Required if embedding_weights
                 is not provided. Defaults to None.
+            max_seq_length (int, optional): The maximum number of tokens per input; longer inputs are truncated.
+                Defaults to 131072.
 
         .. tip::
 
@@ -105,6 +111,7 @@ class StaticEmbedding(InputModule):
 
         self.tokenizer: Tokenizer = tokenizer
         self.tokenizer.no_padding()
+        self.max_seq_length = max_seq_length
 
         # For the model card
         self.base_model = kwargs.get("base_model", None)
@@ -113,7 +120,7 @@ class StaticEmbedding(InputModule):
         if prompt:
             inputs = self._prepend_prompt(inputs, prompt)
         encodings = self.tokenizer.encode_batch(inputs, add_special_tokens=False)
-        encodings_ids = [encoding.ids for encoding in encodings]
+        encodings_ids = [encoding.ids[: self.max_seq_length] for encoding in encodings]
 
         offsets = torch.from_numpy(np.cumsum([0] + [len(token_ids) for token_ids in encodings_ids[:-1]]))
         input_ids = torch.tensor([token_id for token_ids in encodings_ids for token_id in token_ids], dtype=torch.long)
@@ -122,10 +129,6 @@ class StaticEmbedding(InputModule):
     def forward(self, features: dict[str, torch.Tensor], **kwargs) -> dict[str, torch.Tensor]:
         features["sentence_embedding"] = self.embedding(features["input_ids"], features["offsets"])
         return features
-
-    @property
-    def max_seq_length(self) -> int:
-        return math.inf
 
     def get_embedding_dimension(self) -> int:
         return self.embedding_dim
@@ -136,6 +139,7 @@ class StaticEmbedding(InputModule):
         else:
             torch.save(self.state_dict(), os.path.join(output_path, "pytorch_model.bin"))
         self.tokenizer.save(str(Path(output_path) / "tokenizer.json"))
+        self.save_config(output_path)
 
     @classmethod
     def load(
@@ -167,7 +171,12 @@ class StaticEmbedding(InputModule):
             embedding_weights = cls._fold_model2vec_weights(
                 weights["embeddings"], weights.get("mapping"), weights.get("weights")
             )
-        return StaticEmbedding(tokenizer, embedding_weights=embedding_weights)
+        config = cls.load_config(model_name_or_path, **hub_kwargs)
+        init_kwargs = {}
+        max_seq_length = config.get("max_seq_length", config.get("max_length"))
+        if max_seq_length is not None:
+            init_kwargs["max_seq_length"] = max_seq_length
+        return cls(tokenizer, embedding_weights=embedding_weights, **init_kwargs)
 
     @staticmethod
     def _fold_model2vec_weights(
