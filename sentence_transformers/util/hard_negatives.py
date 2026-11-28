@@ -365,9 +365,14 @@ def mine_hard_negatives(
             f"Setting `absolute_margin` to `{absolute_margin}`."
         )
 
-    # To avoid re-embedding the same query multiple times, we keep a counter of the number of positives per query
-    positives_per_query = list(
-        dataset.to_pandas().groupby(anchor_column_name).count().to_dict()[positive_column_name].values()
+    # Count positives per query without materializing unused dataset columns in pandas.
+    pair_columns = list(dict.fromkeys((anchor_column_name, positive_column_name)))
+    positives_per_query = (
+        dataset.select_columns(pair_columns)
+        .to_pandas()
+        .groupby(anchor_column_name)
+        .count()[positive_column_name]
+        .tolist()
     )
     max_positives = max(positives_per_query)
 
