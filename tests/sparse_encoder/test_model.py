@@ -195,6 +195,40 @@ def test_decode_batch_with_empty_sample(splade_bert_tiny_model: SparseEncoder) -
     assert decoded[1] == []  # sample 1 is empty
 
 
+@pytest.mark.parametrize("top_k", [None, 1])
+@pytest.mark.parametrize("batched", [False, True])
+def test_decode_excludes_zero_sparse_weights(
+    splade_bert_tiny_model: SparseEncoder, top_k: int | None, batched: bool
+) -> None:
+    model = splade_bert_tiny_model
+    vocab_size = model.get_embedding_dimension()
+    if batched:
+        # Row 0 has a signed weight and cancelling duplicate entries, row 1 an
+        # explicit zero, row 2 a positive weight, and row 3 no stored entries.
+        sparse = torch.sparse_coo_tensor(
+            [[0, 0, 0, 1, 2], [1, 2, 2, 5, 5]],
+            [-2.0, 3.0, -3.0, -0.0, 5.0],
+            (4, vocab_size),
+        )
+    else:
+        sparse = torch.sparse_coo_tensor([[1, 2, 2]], [-2.0, 3.0, -3.0], (vocab_size,))
+    expected_negative = [(model.tokenizer.convert_ids_to_tokens(1), -2.0)]
+    expected_positive = [(model.tokenizer.convert_ids_to_tokens(5), 5.0)]
+    expected = [expected_negative, [], expected_positive, []] if batched else expected_negative
+
+    assert model.decode(sparse, top_k=top_k) == model.decode(sparse.to_dense(), top_k=top_k) == expected
+
+
+def test_decode_preserves_nan_sparse_weight(splade_bert_tiny_model: SparseEncoder) -> None:
+    model = splade_bert_tiny_model
+    sparse = torch.sparse_coo_tensor([[1, 2]], [float("nan"), 0.0], (model.get_embedding_dimension(),))
+    result = model.decode(sparse)
+    assert len(result) == 1
+    token, value = result[0]
+    assert token == model.tokenizer.convert_ids_to_tokens(1)
+    assert np.isnan(value)
+
+
 @pytest.mark.parametrize("top_k", [None, 5, 1000])
 @pytest.mark.parametrize(
     "texts",
