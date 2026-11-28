@@ -17,8 +17,11 @@ so dropout draws the same masks and the cached gradients belong to the embedding
 from __future__ import annotations
 
 import bisect
+import inspect
+import math
+import random
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from functools import partial
 from typing import Any
 
@@ -410,6 +413,255 @@ def _backward_hook(
             reps_mb.backward(torch.zeros_like(reps_mb))
 
 
+def _supports_deferred_backward(calculate_loss):
+    supported = getattr(calculate_loss, "supports_deferred_backward", None)
+    if supported is not None:
+        return supported
+    # Check the actual method, not an inherited class flag: subclasses may still
+    # override calculate_loss using the original with_backward-only signature.
+    return "backward_scale" in inspect.signature(calculate_loss).parameters
+
+
+def _uses_deferred_backward(loss_obj):
+    # Exclude the encoder module, not its parameter identities: a head can share
+    # parameters with the encoder and still need both gradient paths scaled.
+    seen = {id(loss_obj.model)}
+
+    def has_parameters(module):
+        if id(module) in seen:
+            return False
+        seen.add(id(module))
+        if any(p is not None and p.requires_grad for p in module._parameters.values()):
+            return True
+        return any(has_parameters(child) for child in module.children())
+
+    return has_parameters(loss_obj) and _supports_deferred_backward(loss_obj.calculate_loss)
+
+
+def _feature_tensor_span(value: Tensor) -> tuple[int, int]:
+    """Bound occupied storage bytes, requiring a sufficient non-overlap proof.
+
+    This is deliberately conservative for unusual strided layouts: each next axis
+    must start beyond the entire span covered by the previous axes. It reads only
+    metadata and does not synchronize accelerator tensors.
+    """
+    if value.layout != torch.strided:
+        raise ValueError("Deferred cached losses require strided feature tensors for input isolation.")
+    if not value.numel():
+        return (0, 0)
+    extent = 1
+    for stride, size in sorted((stride, size) for size, stride in zip(value.shape, value.stride()) if size > 1):
+        if stride < extent:
+            raise ValueError(
+                "Deferred cached losses cannot prove that a feature tensor has no internal overlap. "
+                "Provide an independently cloned feature tensor instead."
+            )
+        extent += (size - 1) * stride
+    start = value.storage_offset() * value.element_size()
+    return start, start + extent * value.element_size()
+
+
+def _feature_views_are_disjoint(a: Tensor, b: Tensor) -> bool:
+    a_begin, a_end = _feature_tensor_span(a)
+    b_begin, b_end = _feature_tensor_span(b)
+    if a_end <= b_begin or b_end <= a_begin:
+        return True
+    # Every element begins in one residue class modulo the common byte stride.
+    # Disjoint byte intervals within that period prove even interleaved views
+    # cannot overlap. Failing this sufficient test does not prove an overlap.
+    period = math.gcd(
+        *(
+            stride * value.element_size()
+            for value in (a, b)
+            for size, stride in zip(value.shape, value.stride())
+            if size > 1
+        )
+    )
+    if not period:
+        return False
+    distance = (b_begin - a_begin) % period
+    return a.element_size() <= distance and b.element_size() <= period - distance
+
+
+def _isolate_minibatch_inputs(sentence_feature, minibatch):
+    # Distinct views can have different autograd parents. Preserve their separate
+    # clones only when their storage intervals are provably disjoint.
+    source_storages = {}
+    for value in sentence_feature.values():
+        if not isinstance(value, Tensor):
+            continue
+        begin, end = _feature_tensor_span(value)
+        if begin == end:
+            continue
+        storage = (value.device, value.untyped_storage().data_ptr())
+        previous_views = source_storages.setdefault(storage, [])
+        for previous in previous_views:
+            if previous is not value and not _feature_views_are_disjoint(previous, value):
+                raise ValueError(
+                    "Deferred cached losses cannot prove that different feature tensor views sharing storage "
+                    "are disjoint. Provide independently cloned feature tensors instead."
+                )
+        previous_views.append(value)
+
+    clones = {}
+    isolated = {}
+    for key, value in minibatch.items():
+        if not isinstance(value, Tensor) or not value.numel():
+            isolated[key] = value.clone() if isinstance(value, Tensor) else value
+            continue
+        # _create_minibatch makes fresh views even for identical source tensors.
+        # Reuse a clone for identical views, but retain independent gradient paths
+        # for disjoint views. No arbitrary strided storage reconstruction is needed.
+        storage = (value.device, value.untyped_storage().data_ptr())
+        geometry = (value.dtype, value.shape, value.stride(), value.storage_offset())
+        previous_clones = clones.setdefault(storage, [])
+        for previous, previous_geometry, clone in previous_clones:
+            if geometry == previous_geometry:
+                isolated[key] = clone
+                break
+            if not _feature_views_are_disjoint(previous, value):
+                raise ValueError(
+                    "Deferred cached losses cannot prove that differently sliced aliased feature tensors "
+                    "are disjoint. Provide independently cloned feature tensors instead."
+                )
+        else:
+            isolated[key] = value.clone()
+            previous_clones.append((value, geometry, isolated[key]))
+    return isolated
+
+
+def _get_autocast_states(embedding_device):
+    if hasattr(torch, "get_autocast_dtype"):
+        return [
+            (
+                device,
+                torch.is_autocast_enabled(device),
+                torch.get_autocast_dtype(device),
+                torch.is_autocast_cache_enabled(),
+            )
+            for device in {"cpu", embedding_device}
+        ]
+    # PyTorch 2.2/2.3 expose only the device-specific autocast accessors.
+    states = [
+        ("cpu", torch.is_autocast_cpu_enabled(), torch.get_autocast_cpu_dtype(), torch.is_autocast_cache_enabled())
+    ]
+    if embedding_device == "cuda":
+        states.append(
+            ("cuda", torch.is_autocast_enabled(), torch.get_autocast_gpu_dtype(), torch.is_autocast_cache_enabled())
+        )
+    return states
+
+
+def _validate_loss_buffer_aliases(loss_obj):
+    # Snapshots preserve repeated references to the same Tensor, not distinct
+    # views of its storage. Reject those views before encoding can mutate state.
+    storages = {}
+
+    def storage_key(value):
+        if value.layout != torch.strided:
+            raise ValueError("Deferred cached losses require strided registered tensors for buffer alias validation.")
+        storage = value.untyped_storage()
+        return (value.device, storage.data_ptr()) if storage.nbytes() else None
+
+    for parameter in loss_obj.parameters():
+        key = storage_key(parameter)
+        if key is not None:
+            storages.setdefault(key, set()).add(id(parameter))
+    for module in loss_obj.modules():
+        for value in module._buffers.values():
+            if value is None:
+                continue
+            if value.requires_grad and not isinstance(value, torch.nn.Parameter):
+                raise ValueError(
+                    "Deferred cached losses require trainable tensors to be registered parameters, not buffers."
+                )
+            key = storage_key(value)
+            if key is None:
+                continue
+            identities = storages.setdefault(key, set())
+            if identities and identities != {id(value)}:
+                raise ValueError(
+                    "Deferred cached losses cannot replay distinct registered tensors sharing storage when a buffer "
+                    "is involved. Repeated references to the same Tensor object are supported, but buffer views "
+                    "require independent storage."
+                )
+            identities.add(id(value))
+
+
+@contextmanager
+def _replay_loss_buffers(snapshots):
+    # Recompute against the state observed by this forward without advancing live
+    # running statistics a second time. Preserve identical Tensor references;
+    # distinct storage aliases were rejected before the forward pass.
+    originals = []
+    clones = {}
+    try:
+        for module, name, value in snapshots:
+            originals.append((module, name, module._buffers[name]))
+            if value is not None and not isinstance(value, torch.nn.Parameter):
+                if id(value) not in clones:
+                    clones[id(value)] = value.clone()
+                value = clones[id(value)]
+            module._buffers[name] = value
+        yield
+    finally:
+        for module, name, value in originals:
+            module._buffers[name] = value
+
+
+def _deferred_backward_hook(
+    grad_output,
+    *,
+    loss_obj,
+    calculate_loss,
+    reps,
+    labels,
+    sentence_features,
+    random_states,
+    ranges,
+    loss_rng,
+    python_rng,
+    autocast_states,
+    buffers,
+    parameters,
+    inputs,
+    training_states,
+    module_structure,
+):
+    if tuple((name, id(module)) for name, module in loss_obj.named_modules()) != module_structure:
+        raise RuntimeError("Cached loss module structure changed between forward and backward.")
+    for module, name, parameter, version, requires_grad in parameters:
+        if module._parameters.get(name) is not parameter or (
+            parameter is not None and (parameter._version != version or parameter.requires_grad != requires_grad)
+        ):
+            raise RuntimeError("Cached loss parameters changed between forward and backward.")
+    for tensor, version in inputs:
+        if tensor._version != version:
+            raise RuntimeError("Cached loss input or label tensors changed between forward and backward.")
+    if any(module.training != training for module, training in training_states):
+        raise RuntimeError("Cached loss training mode changed between forward and backward.")
+    # Use fresh leaves on every invocation, including retain_graph=True backwards.
+    reps = [[rep.detach().requires_grad_() for rep in column] for column in reps]
+    python_state = random.getstate()
+    try:
+        random.setstate(python_rng)
+        with torch.enable_grad(), loss_rng, _replay_loss_buffers(buffers), ExitStack() as stack:
+            for device, enabled, dtype, cache_enabled in autocast_states:
+                stack.enter_context(torch.autocast(device, enabled=enabled, dtype=dtype, cache_enabled=cache_enabled))
+            calculate_loss(reps, labels, with_backward=True, backward_scale=grad_output)
+            cache = [[rep.grad for rep in column] for column in reps]
+            unused = [str(i) for i, column in enumerate(cache) if any(g is None for g in column)]
+            if unused:
+                raise ValueError(f"The loss computation did not use input column(s) {', '.join(unused)}.")
+        # Cached embedding gradients already include the incoming scale.
+        with ExitStack() as stack:
+            for device, enabled, dtype, cache_enabled in autocast_states:
+                stack.enter_context(torch.autocast(device, enabled=enabled, dtype=dtype, cache_enabled=cache_enabled))
+            _backward_hook(torch.ones_like(grad_output), sentence_features, loss_obj, cache, random_states, ranges)
+    finally:
+        random.setstate(python_state)
+
+
 class CachedLossMixin:
     """The GradCache forward pass, shared by the losses that cache the gradients wrt. their embeddings.
 
@@ -433,6 +685,18 @@ class CachedLossMixin:
         When ``with_backward`` is set, back-propagate the loss (chunk by chunk, if the implementation
         chunks it) and return the detached total, so that no part of the loss graph outlives its own
         backward pass. Losses that don't need the labels simply ignore them.
+
+        Implementations may additionally declare a ``backward_scale`` keyword and
+        multiply every loss chunk by it before calling backward. When the loss has
+        trainable parameters outside the encoder, this enables deferred loss recomputation: forward evaluates without autograd, and the
+        outer backward recomputes score chunks with its upstream gradient. This
+        is required for correctly scaled loss-owned trainable parameters. Old
+        overrides without the keyword retain the original caching contract, including
+        its limitation for trainable loss parameters. Deferred replay snapshots registered
+        buffers and Tensor inputs; custom non-Tensor mutable state is not replayed.
+        Feature views must have a provably non-overlapping layout for input isolation.
+        Distinct registered tensors sharing storage with a buffer are rejected before
+        encoding; repeated references to the same Tensor object remain supported.
         """
         raise NotImplementedError
 
@@ -449,6 +713,11 @@ class CachedLossMixin:
         grad_context = nullcontext if with_grad else torch.no_grad
         random_state_context = nullcontext() if random_state is None else random_state
         sentence_feature_minibatch = _create_minibatch(sentence_feature, begin, end)
+        if torch.is_grad_enabled() and _uses_deferred_backward(self):
+            # A module may mutate its feature tensors in place. Keep each pass's
+            # inputs isolated so replay sees the same values, and internal writes
+            # cannot invalidate the caller-input version guards or another forward.
+            sentence_feature_minibatch = _isolate_minibatch_inputs(sentence_feature, sentence_feature_minibatch)
         with random_state_context:
             with grad_context():
                 random_state = RandContext(*sentence_feature_minibatch.values()) if copy_random_state else None
@@ -484,8 +753,13 @@ class CachedLossMixin:
 
     def forward_cached(self, sentence_features: Iterable[dict[str, Tensor]], labels: Tensor | None = None) -> Tensor:
         """Run the three-step GradCache forward pass. See the module docstring."""
-        sentence_features = list(sentence_features)
+        # Hold this call's bindings, even if a data pipeline reuses its dictionaries.
+        # Tensor storage remains shared and is version-checked before recomputation.
         grad_enabled = torch.is_grad_enabled()
+        deferred = grad_enabled and _uses_deferred_backward(self)
+        if deferred:
+            _validate_loss_buffer_aliases(self)
+        sentence_features = [dict(feature) for feature in sentence_features] if deferred else list(sentence_features)
 
         # Compute the mini-batch boundaries before any forward pass. Modules may modify the
         # features in place while embedding, and step (3) must replay step (1)'s boundaries.
@@ -517,6 +791,62 @@ class CachedLossMixin:
         if not grad_enabled:
             # In evaluation there are no gradients to cache and no backward pass to hook into.
             return self.calculate_loss(reps, labels)
+
+        if deferred:
+            calculate_loss = self.calculate_loss
+            loss_rng = RandContext(*(rep for column in reps for rep in column))
+            python_rng = random.getstate()
+            autocast_states = _get_autocast_states(reps[0][0].device.type)
+            # Encoding may have rebound buffers; validate again before snapshotting.
+            _validate_loss_buffer_aliases(self)
+            # Capture loss-stage buffers after encoding, before evaluating the head.
+            snapshots = {}
+            buffers = []
+            for module in self.modules():
+                for name, value in module._buffers.items():
+                    if value is not None and not isinstance(value, torch.nn.Parameter):
+                        if id(value) not in snapshots:
+                            snapshots[id(value)] = value.detach().clone()
+                        value = snapshots[id(value)]
+                    buffers.append((module, name, value))
+            with torch.no_grad():
+                loss = calculate_loss(reps, labels)
+            loss = loss.detach().requires_grad_()
+            loss.register_hook(
+                partial(
+                    _deferred_backward_hook,
+                    loss_obj=self,
+                    calculate_loss=calculate_loss,
+                    reps=reps,
+                    labels=labels,
+                    sentence_features=sentence_features,
+                    random_states=random_states,
+                    ranges=ranges,
+                    loss_rng=loss_rng,
+                    python_rng=python_rng,
+                    autocast_states=autocast_states,
+                    buffers=buffers,
+                    parameters=[
+                        (
+                            module,
+                            name,
+                            parameter,
+                            None if parameter is None else parameter._version,
+                            None if parameter is None else parameter.requires_grad,
+                        )
+                        for module in self.modules()
+                        for name, parameter in module._parameters.items()
+                    ],
+                    inputs=[
+                        (tensor, tensor._version)
+                        for tensor in [labels, *(value for feature in sentence_features for value in feature.values())]
+                        if isinstance(tensor, Tensor)
+                    ],
+                    training_states=[(module, module.training) for module in self.modules()],
+                    module_structure=tuple((name, id(module)) for name, module in self.named_modules()),
+                )
+            )
+            return loss
 
         # Step (2): compute the loss over the whole batch, back-propagating it up to the embeddings,
         # whose gradients become the cache.
