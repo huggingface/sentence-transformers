@@ -72,7 +72,7 @@ jobs:
             echo -e "kenlm\nlibrosa\nnumba\nllvmlite" >> excludes.txt
           fi
       - name: Install dependencies
-        run: uv pip install '.[train,merge]' --group test --excludes excludes.txt --system
+        run: uv pip install '.[train,merge,onnx,openvino]' --group test --excludes excludes.txt --system
 
       - name: Install model2vec
         run: uv pip install model2vec --system
