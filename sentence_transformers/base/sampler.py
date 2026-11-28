@@ -319,7 +319,7 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         queues: dict[Any, deque[int]] = {}
         for label, indices in self.groups.items():
             perm = torch.randperm(len(indices), generator=self.generator)[: len(indices) // 2 * 2]
-            queues[label] = deque(indices[i] for i in perm)
+            queues[label] = deque(indices[i] for i in perm.tolist())
 
         # Round-robin: each label emits 2 samples per round. Stop when < 2 labels remain.
         # The label visit order is reshuffled every round for diverse batches.
@@ -327,9 +327,8 @@ class GroupByLabelBatchSampler(DefaultBatchSampler):
         batch: list[int] = []
         last_label = None
         while len(remaining_labels) >= 2:
-            remaining_labels = [
-                remaining_labels[i] for i in torch.randperm(len(remaining_labels), generator=self.generator)
-            ]
+            order = torch.randperm(len(remaining_labels), generator=self.generator).tolist()
+            remaining_labels = [remaining_labels[i] for i in order]
             # Keep consecutive pairs within a batch from sharing a label.
             if batch and remaining_labels[0] == last_label:
                 remaining_labels[0], remaining_labels[1] = remaining_labels[1], remaining_labels[0]
