@@ -43,3 +43,32 @@ def test_reranking_evaluator_similarity(
     metrics = evaluator(model)
     assert metrics["mrr@1"] == expected_score
     assert metrics["ndcg@1"] == expected_score
+
+
+@pytest.mark.parametrize("use_batched_encoding", [True, False])
+def test_reranking_corpus_sparsity_weights_documents(use_batched_encoding: bool) -> None:
+    tokenizer = Tokenizer(WordLevel({"[PAD]": 0, "[UNK]": 1, "alpha": 2, "beta": 3, "gamma": 4}, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = Whitespace()
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_object=tokenizer, pad_token="[PAD]", unk_token="[UNK]", model_max_length=16
+    )
+    model = SparseEncoder(modules=[SparseStaticEmbedding(tokenizer)])
+    model.model_card_data.generate_widget_examples = False
+
+    evaluator = SparseRerankingEvaluator(
+        samples=[
+            {"query": "alpha", "positive": ["alpha"], "negative": ["beta"]},
+            {
+                "query": "alpha beta gamma",
+                "positive": ["alpha beta gamma"],
+                "negative": ["gamma beta alpha", "alpha gamma beta", "gamma alpha beta"],
+            },
+        ],
+        write_csv=False,
+        use_batched_encoding=use_batched_encoding,
+    )
+
+    metrics = evaluator(model)
+    expected_active_dims = (2 * 1 + 4 * 3) / 6
+    assert metrics["corpus_active_dims"] == pytest.approx(expected_active_dims)
+    assert metrics["corpus_sparsity_ratio"] == pytest.approx(1 - expected_active_dims / 5)

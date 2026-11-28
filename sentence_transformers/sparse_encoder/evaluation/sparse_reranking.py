@@ -140,8 +140,9 @@ class SparseRerankingEvaluator(RerankingEvaluator):
     ) -> dict[str, float]:
         self.sparsity_stats = defaultdict(list)
         metrics = super().evaluate(model=model, output_path=output_path, epoch=epoch, steps=steps)
-        for key, value in self.sparsity_stats.items():
-            self.sparsity_stats[key] = sum(value) / len(value)
+        for key, observations in self.sparsity_stats.items():
+            total = sum(value * size for value, size in observations)
+            self.sparsity_stats[key] = total / sum(size for _, size in observations)
 
         metrics.update(self.sparsity_stats)
         logger.info(
@@ -180,7 +181,7 @@ class SparseRerankingEvaluator(RerankingEvaluator):
         stat = model.sparsity(torch.stack(embeddings))
         prefix = "query" if encode_fn_name in ["query", None] else "corpus"
         for key, value in stat.items():
-            self.sparsity_stats[f"{prefix}_{key}"].append(value)
+            self.sparsity_stats[f"{prefix}_{key}"].append((value, len(embeddings)))
         return embeddings
 
     def get_config_dict(self) -> dict[str, Any]:
