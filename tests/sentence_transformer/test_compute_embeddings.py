@@ -112,3 +112,27 @@ def test_encode_routes_through_module_call(stsb_bert_tiny_model: SentenceTransfo
     finally:
         handle.remove()
     assert calls, "encode() should invoke the model via __call__, not call forward() directly"
+
+
+@pytest.mark.parametrize("mixed_dtype", [False, True], ids=["matched-batches", "mixed-dtypes"])
+def test_encode_cpu_restores_order_across_batches(
+    stsb_bert_tiny_model: SentenceTransformer, mixed_dtype: bool
+) -> None:
+    model = stsb_bert_tiny_model
+    sentences = ["Short", "A considerably longer sentence", "Another sentence", "Tiny", "Third test sentence"]
+    kwargs = {"device": "cpu", "convert_to_tensor": True, "truncate_dim": 8}
+    reference = model.encode(sentences, batch_size=len(sentences), **kwargs)
+
+    def change_final_batch_dtype(module, args, output):
+        if len(output["sentence_embedding"]) == 1:
+            output["sentence_embedding"] = output["sentence_embedding"].double()
+
+    if mixed_dtype:
+        handle = model.register_forward_hook(change_final_batch_dtype)
+        reference = reference.double()
+    try:
+        result = model.encode(sentences, batch_size=2, **kwargs)
+    finally:
+        if mixed_dtype:
+            handle.remove()
+    torch.testing.assert_close(result, reference, atol=1e-5, rtol=1e-5)

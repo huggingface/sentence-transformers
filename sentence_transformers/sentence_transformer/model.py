@@ -959,6 +959,9 @@ class SentenceTransformer(BaseModel, FitMixin):
         self.eval()
 
         all_embeddings = []
+        embedding_batches: list[Tensor] | None = (
+            [] if output_value == "sentence_embedding" and len(inputs) > batch_size else None
+        )
         length_sorted_idx = np.argsort([-self._input_length(sen) for sen in inputs])
         if self._can_flatten_inputs():
             length_sorted_idx = self._interleave_sorted_indices(length_sorted_idx)
@@ -1004,7 +1007,39 @@ class SentenceTransformer(BaseModel, FitMixin):
                 if save_to_cpu:
                     embeddings = embeddings.cpu()
 
+            if embedding_batches is not None:
+                if (
+                    type(embeddings) is Tensor
+                    and embeddings.ndim == 2
+                    and embeddings.shape[0] == len(inputs_batch)
+                    and embeddings.device.type == "cpu"
+                    and embeddings.layout == torch.strided
+                    and embeddings.dtype in (torch.float16, torch.bfloat16, torch.float32, torch.float64)
+                    and (
+                        not embedding_batches
+                        or (
+                            embeddings.dtype == embedding_batches[0].dtype
+                            and embeddings.shape[1] == embedding_batches[0].shape[1]
+                        )
+                    )
+                ):
+                    # Save a view of this storage in case a custom forward reuses the tensor object.
+                    embedding_batches.append(embeddings.detach())
+                    continue
+                # Preserve the row-wise stack path for unusual or heterogeneous batch outputs.
+                all_embeddings.extend(row for batch in embedding_batches for row in batch)
+                embedding_batches = None
+
             all_embeddings.extend(embeddings)
+
+        if embedding_batches:
+            result = embedding_batches[0].new_empty((len(inputs), embedding_batches[0].shape[1]))
+            # Copy whole batches back to input order without creating a tensor view per row.
+            for start_index in range((len(embedding_batches) - 1) * batch_size, -1, -batch_size):
+                batch = embedding_batches.pop()
+                indices = torch.from_numpy(length_sorted_idx[start_index : start_index + len(batch)])
+                result.index_copy_(0, indices, batch)
+            return result
 
         all_embeddings = [all_embeddings[idx] for idx in np.argsort(length_sorted_idx)]
 
