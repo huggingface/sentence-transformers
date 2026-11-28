@@ -449,6 +449,17 @@ def test_pooling_excludes_prompt_tokens_directly(padding_side: str, prompt_lengt
     assert torch.allclose(outputs["sentence_embedding"], expected, atol=1e-6)
 
 
+def test_pooling_compiles_with_prompt_exclusion() -> None:
+    pooling = Pooling(embedding_dimension=1, pooling_mode="mean", include_prompt=False)
+    compiled_pooling = torch.compile(pooling, backend="eager", fullgraph=True)
+    features = {
+        "token_embeddings": torch.arange(8, dtype=torch.float32).reshape(2, 4, 1),
+        "attention_mask": torch.tensor([[1, 1, 1, 0], [0, 1, 1, 1]]),
+        "prompt_length": 1,
+    }
+    torch.testing.assert_close(compiled_pooling(features)["sentence_embedding"], torch.tensor([[1.5], [6.5]]))
+
+
 # Shared test fixtures: two sequences with different lengths and a mix of padding.
 # seq 0: 3 real tokens + 1 pad, seq 1: 4 real tokens, no pad
 _DIM = 2
