@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import warnings
+
+import numpy as np
 import pytest
 import torch
+from scipy.stats import rankdata, spearmanr
 
 from sentence_transformers import MultiVectorEncoder
 from sentence_transformers.multi_vector_encoder.evaluation import (
     MultiVectorDistillationEvaluator,
 )
+from sentence_transformers.multi_vector_encoder.evaluation.distillation import _mean_row_spearman
 
 
 def test_distillation_evaluator(mve_bert_tiny_model: MultiVectorEncoder) -> None:
@@ -147,6 +152,49 @@ def test_distillation_evaluator_spearman_skips_constant_queries(mve_bert_tiny_mo
     )
     results = evaluator(model)
     assert results["distill_constant_spearman"] == 0.0
+
+
+@pytest.mark.parametrize("n_candidates", [1, 2, 4])
+@pytest.mark.parametrize("legacy_rankdata", [False, True])
+def test_distillation_batched_spearman_matches_rowwise_scipy(n_candidates, legacy_rankdata, monkeypatch) -> None:
+    teacher = np.array(
+        [
+            [1, 1, 2, 4],
+            [1, 2, 3, 4],
+            [1, 1, 1, 1],
+            [1, 2, 3, 4],
+            [1, np.nan, 3, 4],
+            [1, 2, 3, 4],
+            [0, np.inf, 4, -np.inf],
+        ],
+        dtype=np.float32,
+    )[:, :n_candidates]
+    student = np.array(
+        [
+            [1, 0, 1, 4],
+            [4, 3, 2, 1],
+            [1, 2, 3, 4],
+            [1, 1, 1, 1],
+            [1, 2, 3, 4],
+            [1, np.nan, 3, 4],
+            [np.inf, 2, 0, -np.inf],
+        ],
+        dtype=np.float32,
+    )[:, :n_candidates]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        reference = [spearmanr(x, y)[0] for x, y in zip(teacher, student)]
+    finite = [value for value in reference if not np.isnan(value)]
+    expected = sum(finite) / len(finite) if finite else 0.0
+
+    if legacy_rankdata:
+        # Older SciPy exposes rankdata without the axis keyword.
+        monkeypatch.setattr(
+            "sentence_transformers.multi_vector_encoder.evaluation.distillation.rankdata",
+            lambda row: rankdata(row),
+        )
+    assert _mean_row_spearman(teacher, student) == pytest.approx(expected, abs=1e-15, rel=0)
 
 
 def test_distillation_evaluator_temperature_matches_training_loss(mve_bert_tiny_model: MultiVectorEncoder) -> None:
