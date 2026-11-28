@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import huggingface_hub
-from huggingface_hub import list_repo_files
+from huggingface_hub import constants, list_repo_files, try_to_load_from_cache
 
 if TYPE_CHECKING:
     from sentence_transformers import CrossEncoder, MultiVectorEncoder, SentenceTransformer, SparseEncoder
@@ -88,16 +88,32 @@ def backend_should_export(
     )
     glob_pattern = f"{subfolder}/**/{target_file_glob}" if subfolder else f"**/{target_file_glob}"
 
-    # Get the list of files in the model directory that match the target file name
+    revision = model_kwargs.get("revision")
+    resolved_revision = getattr(revision, "resolved", revision)
     if is_local:
         model_file_names = [path.relative_to(load_path).as_posix() for path in load_path.glob(glob_pattern)]
+    elif model_kwargs.get("local_files_only") or constants.HF_HUB_OFFLINE:
+        # A deployment may have cached only the files it needs, rather than a complete snapshot.
+        model_file_names = [
+            file_path
+            for file_path in (primary_full_path, secondary_full_path)
+            if fnmatch(Path(file_path).name, target_file_glob)
+            and isinstance(
+                try_to_load_from_cache(
+                    load_path.as_posix(),
+                    file_path,
+                    cache_dir=model_kwargs.get("cache_dir"),
+                    revision=resolved_revision,
+                ),
+                str,
+            )
+        ]
     else:
         # Unlike hf_hub_download, list_repo_files is not ResolvedRevision-aware, so pin it to the resolved commit
-        revision = model_kwargs.get("revision", None)
         all_files = list_repo_files(
             load_path.as_posix(),
             repo_type="model",
-            revision=getattr(revision, "resolved", revision),
+            revision=resolved_revision,
             token=model_kwargs.get("token", None),
         )
         model_file_names = [fname for fname in all_files if fnmatch(fname, glob_pattern)]
