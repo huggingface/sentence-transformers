@@ -157,16 +157,9 @@ class Pooling(Module):
         Operates on a copy: the gradient-cached losses re-embed the caller's features in their backward
         pass, so zeroing the mask in place would change their attention between the two forward passes.
         """
-        attention_mask = attention_mask.clone()
-        pad_lengths = attention_mask.to(torch.int32).argmax(dim=1)
-        if pad_lengths.sum() == 0:
-            # No left-padding: directly zero-out the first ``prompt_length`` positions.
-            attention_mask[:, :prompt_length] = 0
-        else:
-            # Left-padding present: zero-out all pad + prompt positions.
-            positions = torch.arange(attention_mask.size(1), device=attention_mask.device).unsqueeze(0)
-            attention_mask[positions < (pad_lengths + prompt_length).unsqueeze(1)] = 0
-        return attention_mask
+        pad_lengths = attention_mask.to(torch.int32).argmax(dim=1, keepdim=True)
+        positions = torch.arange(attention_mask.size(1), device=attention_mask.device)
+        return attention_mask.masked_fill(positions < pad_lengths + prompt_length, 0)
 
     def _forward_padded(
         self,
